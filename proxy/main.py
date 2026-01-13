@@ -1,12 +1,14 @@
 import asyncio
 import sys
 
+from logger import setup_logging
 from proxy_server import ProxyServer
 
 from config import ConfigLoader
 
 
 async def run(config_path: str):
+    setup_logging()
     config = ConfigLoader(config_path).get_config()
     await ProxyServer(config).start_server()
 

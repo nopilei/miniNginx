@@ -16,6 +16,14 @@ class UpstreamResponseIterator(BaseHTTPIterator):
     http_reader_class = HTTPResponseReader
     timeout_err = UpstreamConnectionTimeout("Timeout on getting data from resource")
 
+    async def __anext__(self) -> bytes:
+        if self.reader.at_eof():
+            raise StopAsyncIteration
+        try:
+            return await asyncio.wait_for(anext(self.http_iterator), 15)
+        except TimeoutError as exc:
+            raise self.timeout_err from exc
+
 
 class UpstreamConnection(BaseConnection):
     connection_closed_err = UpstreamConnectionClosed("Upstream closed connection")

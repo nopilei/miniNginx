@@ -1,7 +1,7 @@
 import asyncio
 import http
 from dataclasses import dataclass
-from typing import AsyncIterator
+from typing import AsyncGenerator
 
 
 class HTTPParseError(Exception):
@@ -57,7 +57,7 @@ class BaseHTTPReader:
     async def _get_headers(self) -> bytes:
         return await self.reader.readuntil(b'\r\n\r\n')
 
-    async def _get_body(self, headers: bytes) -> AsyncIterator[bytes]:
+    async def _get_body(self, headers: bytes) -> AsyncGenerator[bytes]:
         lower_case_headers = self._get_parsed_headers(headers)
 
         if content_length := int(lower_case_headers.get(b'content-length', 0)):
@@ -79,7 +79,7 @@ class BaseHTTPReader:
 
         return headers
 
-    async def chunk_iterator(self) -> AsyncIterator[bytes]:
+    async def chunk_iterator(self) -> AsyncGenerator[bytes]:
         try:
             async for chunk in self._chunk_iterator():
                 yield chunk
@@ -89,7 +89,7 @@ class BaseHTTPReader:
     async def _get_start_line(self) -> bytes:
         return await self.reader.readuntil(b'\r\n')
 
-    async def _chunk_iterator(self) -> AsyncIterator[bytes]:
+    async def _chunk_iterator(self) -> AsyncGenerator[bytes]:
         while True:
             start_line = await self._get_start_line()
             yield start_line
