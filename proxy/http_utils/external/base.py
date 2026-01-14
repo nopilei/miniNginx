@@ -1,4 +1,5 @@
 import asyncio
+from typing import AsyncIterable
 
 from http_utils.http_parser import BaseHTTPReader
 
@@ -9,7 +10,12 @@ class BaseHTTPIterator:
 
     def __init__(self, reader):
         self.reader = reader
-        self.http_iterator = self.http_reader_class(reader).chunk_iterator()
+        self.http_reader = self.http_reader_class(reader)
+        self.http_iterator = self.http_reader.chunk_iterator()
+    
+    @property
+    def messages_read(self) -> int:
+        return self.http_reader.messages_read
 
     def __aiter__(self):
         return self
@@ -30,9 +36,14 @@ class BaseConnection:
     def __init__(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         self.reader = reader
         self.writer = writer
+        self.http_iterator = self.http_iterator_class(self.reader)
 
-    def iterator(self):
-        return self.http_iterator_class(self.reader)
+    def iterator(self) -> AsyncIterable[bytes]:
+        return self.http_iterator
+    
+    @property
+    def messages_read(self) -> int:
+        return self.http_iterator.messages_read
 
     async def write(self, response: bytes) -> None:
         if self.writer.is_closing():

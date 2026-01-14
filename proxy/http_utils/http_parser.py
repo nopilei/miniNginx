@@ -53,6 +53,7 @@ class BaseHTTPReader:
 
     def __init__(self, reader: asyncio.StreamReader):
         self.reader = reader
+        self._messages_read = 0
 
     async def _get_headers(self) -> bytes:
         return await self.reader.readuntil(b'\r\n\r\n')
@@ -85,6 +86,10 @@ class BaseHTTPReader:
                 yield chunk
         except Exception as exc:
             raise HTTPParseError('Invalid bytes from external resource') from exc
+    
+    @property
+    def messages_read(self) -> int:
+        return self._messages_read
 
     async def _get_start_line(self) -> bytes:
         return await self.reader.readuntil(b'\r\n')
@@ -98,6 +103,7 @@ class BaseHTTPReader:
             yield headers
             async for chunk in self._get_body(headers):
                 yield chunk
+            self._messages_read += 1
 
     def _validate_start_line(self, raw_start_line: bytes) -> None:
         raise NotImplementedError

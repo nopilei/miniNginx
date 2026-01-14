@@ -52,7 +52,7 @@ class RoundRobinUpstreamPool(UpstreamPool):
         return connection, upstream
 
     async def release(self, upstream: asyncio.Queue, connection: UpstreamConnection):
-        await upstream.put(connection)
+        await upstream.put(UpstreamConnection(reader=connection.reader, writer=connection.writer))
 
     async def connect_upstream(self, host: str, port: int) -> UpstreamConnection:
         reader, writer = await asyncio.open_connection(host=host, port=port)

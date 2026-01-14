@@ -5,6 +5,7 @@ from config import ParsedConfig
 from http_utils.error_responses import get_error_response
 from http_utils.external.base import BaseConnection
 from http_utils.http_parser import HTTPParseError
+from http_utils.external.upstream import UpstreamConnectionTimeout
 from upstream_pool import PoolConnectionError, RoundRobinUpstreamPool
 from http_utils.external.client import ClientConnectionTimeout, ClientConnectionClosed, ClientConnection
 from context import client_addr_var
@@ -46,20 +47,22 @@ class ProxyServer:
                 tg.create_task(self.upstream_to_client(client_connection, upstream_connection))
         except* (ClientConnectionTimeout, ClientConnectionClosed):
             logger.info("Client timeout.")
-            await self.pool.release(upstream_connections, upstream_connection)
         except* HTTPParseError as exc:
-            for e in exc.exceptions:
-                logger.error(e)
-            await self.pool.release(upstream_connections, upstream_connection)
+            logger.error("Error parsing http data")
             await self.send_parsing_error_response(client_connection)
+        except* UpstreamConnectionTimeout as exc:
+            if client_connection.messages_read != upstream_connection.messages_read:
+                for e in exc.exceptions:
+                    logger.exception(e)
+                await self.send_bad_gateway_response(client_connection)
         except* Exception as exc:
             for e in exc.exceptions:
                 logger.exception(e)
             await self.send_bad_gateway_response(client_connection)
-        else:
-            await self.pool.release(upstream_connections, upstream_connection)
         finally:
             await client_connection.close()
+            if client_connection.messages_read == upstream_connection.messages_read:
+                await self.pool.release(upstream_connections, upstream_connection)
 
     async def client_to_upstream(self, client_connection: BaseConnection, upstream_connection: BaseConnection):
         logger.info("Getting data from client...")
