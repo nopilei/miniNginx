@@ -51,8 +51,12 @@ class RoundRobinUpstreamPool(UpstreamPool):
             raise PoolConnectionError("Timeout on getting upstream from pool") from exc
         return connection, upstream
 
-    async def release(self, upstream: asyncio.Queue, connection: UpstreamConnection):
-        await upstream.put(UpstreamConnection(reader=connection.reader, writer=connection.writer))
+    async def release(self, upstream: asyncio.Queue, connection: UpstreamConnection, is_healthy: bool):
+        if is_healthy:
+            await upstream.put(UpstreamConnection(reader=connection.reader, writer=connection.writer))
+        else:
+            host, port = connection.writer.get_extra_info('socket').getpeername()
+            await upstream.put(await self.connect_upstream(host, port))
 
     async def connect_upstream(self, host: str, port: int) -> UpstreamConnection:
         reader, writer = await asyncio.open_connection(host=host, port=port)

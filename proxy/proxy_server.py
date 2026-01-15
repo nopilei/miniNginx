@@ -61,8 +61,7 @@ class ProxyServer:
             await self.send_bad_gateway_response(client_connection)
         finally:
             await client_connection.close()
-            if client_connection.messages_read == upstream_connection.messages_read:
-                await self.pool.release(upstream_connections, upstream_connection)
+            await self.pool.release(upstream_connections, upstream_connection, client_connection.messages_read == upstream_connection.messages_read)
 
     async def client_to_upstream(self, client_connection: BaseConnection, upstream_connection: BaseConnection):
         logger.info("Getting data from client...")
