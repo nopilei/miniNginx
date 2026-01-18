@@ -1,5 +1,5 @@
 from http_utils.external.base import BaseHTTPIterator, BaseConnection
-from http_utils.http_parser import HTTPResponseReader
+from http_utils.http_reader import HTTPResponseReader
 
 
 class UpstreamConnectionTimeout(TimeoutError):

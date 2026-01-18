@@ -4,9 +4,31 @@ import yaml
 
 
 @dataclass
-class ParsedConfig:
+class TimeoutsConfig:
+    connect_ms: float
+    read_ms: float
+    write_ms: float
+    total_ms: float
+
+
+@dataclass
+class UpstreamConfig:
+    host: str
+    port: int
+
+
+@dataclass
+class LimitsConfig:
+    max_client_conns: int
+    max_conns_per_upstream: int
+
+
+@dataclass
+class Config:
     listen: str
-    upstreams: list[dict[str, str]]
+    upstreams: list[UpstreamConfig]
+    timeouts: TimeoutsConfig
+    limits: LimitsConfig
 
 
 class ConfigLoader:
@@ -16,7 +38,12 @@ class ConfigLoader:
     def get_config(self):
         raw_config = self._get_raw_config(self.path)
         self._validate_config(raw_config)
-        return ParsedConfig(listen=raw_config["listen"], upstreams=raw_config["upstreams"])
+        return Config(
+            listen=raw_config["listen"],
+            upstreams=[UpstreamConfig(**upstream) for upstream in raw_config["upstreams"]],
+            timeouts=TimeoutsConfig(**raw_config["timeouts"]),
+            limits=LimitsConfig(**raw_config["limits"]),
+        )
 
     def _get_raw_config(self, path: str) -> dict:
         with open(path, "r") as f:
@@ -38,3 +65,9 @@ class ConfigLoader:
                 raise ValueError("host not set in upstream")
             if "port" not in upstream:
                 raise ValueError("port not set in upstream")
+
+        if "timeouts" not in raw_config:
+            raise ValueError("'timeouts' param required")
+
+        if "limits" not in raw_config:
+            raise ValueError("'limits' param required")

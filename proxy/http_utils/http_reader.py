@@ -1,11 +1,16 @@
 import asyncio
 import http
+import logging
+import time
 from dataclasses import dataclass
 from typing import AsyncGenerator
 
 
 class HTTPParseError(Exception):
     pass
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -54,11 +59,12 @@ class BaseHTTPReader:
     def __init__(self, reader: asyncio.StreamReader):
         self.reader = reader
         self._messages_read = 0
+        self._messages_read_timestamps = asyncio.Queue()
 
     async def _get_headers(self) -> bytes:
         return await self.reader.readuntil(b'\r\n\r\n')
 
-    async def _get_body(self, headers: bytes) -> AsyncGenerator[bytes]:
+    async def _get_body(self, headers: bytes) -> AsyncGenerator[bytes, None]:
         lower_case_headers = self._get_parsed_headers(headers)
 
         if content_length := int(lower_case_headers.get(b'content-length', 0)):
@@ -80,21 +86,25 @@ class BaseHTTPReader:
 
         return headers
 
-    async def chunk_iterator(self) -> AsyncGenerator[bytes]:
+    async def chunk_iterator(self) -> AsyncGenerator[bytes, None]:
         try:
             async for chunk in self._chunk_iterator():
                 yield chunk
         except Exception as exc:
             raise HTTPParseError('Invalid bytes from external resource') from exc
-    
+
     @property
     def messages_read(self) -> int:
         return self._messages_read
 
+    @property
+    def messages_read_timestamps(self) -> asyncio.Queue:
+        return self._messages_read_timestamps
+
     async def _get_start_line(self) -> bytes:
         return await self.reader.readuntil(b'\r\n')
 
-    async def _chunk_iterator(self) -> AsyncGenerator[bytes]:
+    async def _chunk_iterator(self) -> AsyncGenerator[bytes, None]:
         while True:
             start_line = await self._get_start_line()
             yield start_line
@@ -104,6 +114,7 @@ class BaseHTTPReader:
             async for chunk in self._get_body(headers):
                 yield chunk
             self._messages_read += 1
+            await self._messages_read_timestamps.put(time.monotonic())
 
     def _validate_start_line(self, raw_start_line: bytes) -> None:
         raise NotImplementedError
@@ -112,6 +123,7 @@ class BaseHTTPReader:
 class HTTPRequestReader(BaseHTTPReader):
     def _validate_start_line(self, raw_start_line: bytes) -> None:
         method, path, version = raw_start_line[:-2].split(b' ')
+        logger.info(f"Getting request. {method} {path} {version}")
 
         if http.HTTPMethod(method.decode()) not in http.HTTPMethod:
             raise ValueError(f'Wrong method: {method}')
@@ -126,6 +138,7 @@ class HTTPRequestReader(BaseHTTPReader):
 class HTTPResponseReader(BaseHTTPReader):
     def _validate_start_line(self, raw_start_line: bytes) -> None:
         version, status, reason = raw_start_line[:-2].split(b' ', 2)
+        logger.info(f"Getting response. {status} {reason}")
 
         if http.HTTPStatus(int(status)) not in http.HTTPStatus:
             raise ValueError(f'Wrong status code: {status}')

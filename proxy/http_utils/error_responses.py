@@ -1,4 +1,4 @@
-from http_utils.http_parser import HTTPResponse
+from http_utils.http_reader import HTTPResponse
 
 
 def get_error_response(status: int, reason: str, body: str) -> HTTPResponse:

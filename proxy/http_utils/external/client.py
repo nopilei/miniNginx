@@ -1,5 +1,5 @@
 from http_utils.external.base import BaseConnection, BaseHTTPIterator
-from http_utils.http_parser import HTTPRequestReader, HTTPRequest, HTTPResponse
+from http_utils.http_reader import HTTPRequestReader
 
 
 class ClientConnectionTimeout(TimeoutError):
