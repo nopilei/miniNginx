@@ -1,0 +1,76 @@
+services:
+  proxy:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    volumes:
+      - .:/app
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9100/metrics || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    command: bash run_proxy.sh
+    depends_on:
+      echo_1:
+        condition: service_healthy
+      echo_2:
+        condition: service_healthy
+      
+  
+  echo_1:
+    image: python:3.11-slim
+    volumes:
+      - .:/app
+    working_dir: /app
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9001/health || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    environment:
+      - PORT=9001
+      - PYTHONUNBUFFERED=1
+    ports:
+      - "9001:9001"
+    command: bash run_echo.sh
+
+  echo_2:
+    image: python:3.11-slim
+    volumes:
+      - .:/app
+    working_dir: /app
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9002/health || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    environment:
+      - PORT=9002
+      - PYTHONUNBUFFERED=1
+    ports:
+      - "9002:9002"
+    command: bash run_echo.sh
+  prometheus:
+    image: prom/prometheus:latest
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.enable-lifecycle"
+      - "--web.enable-remote-write-receiver"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
