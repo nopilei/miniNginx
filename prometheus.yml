@@ -4,4 +4,4 @@ scrape_configs:
   - job_name: "proxy"
     metrics_path: /metrics
     static_configs:
-      - targets: ["proxy:8080"]
+      - targets: ["proxy:9100"]

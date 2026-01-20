@@ -1,3 +1,4 @@
+import random
 import sys
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -18,6 +19,7 @@ class EchoHandler(BaseHTTPRequestHandler):
         content_length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(content_length)
 
+        # time.sleep(random.random())
         self.send_response(200)
         self.send_header("Content-Type", "text/plain")
         self.send_header("Content-Length", str(len(body)))
@@ -29,6 +31,6 @@ class EchoHandler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    server = ThreadingHTTPServer(("localhost", int(sys.argv[1])), EchoHandler)
+    server = ThreadingHTTPServer(("0.0.0.0", int(sys.argv[1])), EchoHandler)
     print(f"HTTP Echo сервер запущен на порту {sys.argv[1]}")
     server.serve_forever()

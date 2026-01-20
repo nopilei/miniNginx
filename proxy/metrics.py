@@ -39,6 +39,6 @@ async def handle_metrics(reader, writer):
 
 
 async def start_metrics_server():
-    server = await asyncio.start_server(handle_metrics, "127.0.0.1", 9100)
+    server = await asyncio.start_server(handle_metrics, "0.0.0.0", 9100)
     async with server:
         await server.serve_forever()

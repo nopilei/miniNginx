@@ -84,11 +84,12 @@ class ProxyServer:
                 logger.exception(e)
 
     async def measure_latency(self, client_conn: BaseConnection, upstream_conn: BaseConnection) -> None:
+        upstream_addr = upstream_conn.addr
         while True:
             request_time = await client_conn.messages_read_timestamps.get()
             response_time = await upstream_conn.messages_read_timestamps.get()
             latency = response_time - request_time
-            REQUEST_LATENCY.labels(upstream=upstream_conn.addr).observe(latency)
+            REQUEST_LATENCY.labels(upstream=upstream_addr).observe(latency)
 
     async def client_to_upstream(self, client_conn: BaseConnection, upstream_conn: BaseConnection) -> None:
         logger.info("Getting data from client...")
