@@ -10,6 +10,12 @@ class HTTPParseError(Exception):
     pass
 
 
+@dataclass
+class HTTPMessageChunk:
+    chunk: bytes
+    is_message_end: bool
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -58,13 +64,11 @@ class BaseHTTPReader:
 
     def __init__(self, reader: asyncio.StreamReader):
         self.reader = reader
-        self._messages_read = 0
-        self._messages_read_timestamps = asyncio.Queue()
 
     async def _get_headers(self) -> bytes:
         return await self.reader.readuntil(b'\r\n\r\n')
 
-    async def _get_body(self, headers: bytes) -> AsyncGenerator[bytes, None]:
+    async def _get_body(self, headers: bytes) -> AsyncGenerator[HTTPMessageChunk, None]:
         lower_case_headers = self._get_parsed_headers(headers)
 
         if content_length := int(lower_case_headers.get(b'content-length', 0)):
@@ -72,10 +76,12 @@ class BaseHTTPReader:
             bytes_read = 0
             while bytes_read < content_length:
                 to_read = min(chunk_size, content_length - bytes_read)
-                yield await self.reader.readexactly(to_read)
+                is_message_end = content_length - bytes_read <= chunk_size
+                chunk = await self.reader.readexactly(to_read)
+                yield HTTPMessageChunk(chunk, is_message_end)
                 bytes_read += to_read
         else:
-            yield b''
+            yield HTTPMessageChunk(b'', True)
 
     def _get_parsed_headers(self, raw_headers: bytes) -> dict[bytes, bytes]:
         headers = {}
@@ -86,7 +92,7 @@ class BaseHTTPReader:
 
         return headers
 
-    async def chunk_iterator(self) -> AsyncGenerator[bytes, None]:
+    async def chunk_iterator(self) -> AsyncGenerator[HTTPMessageChunk, None]:
         try:
             async for chunk in self._chunk_iterator():
                 yield chunk
@@ -104,17 +110,15 @@ class BaseHTTPReader:
     async def _get_start_line(self) -> bytes:
         return await self.reader.readuntil(b'\r\n')
 
-    async def _chunk_iterator(self) -> AsyncGenerator[bytes, None]:
+    async def _chunk_iterator(self) -> AsyncGenerator[HTTPMessageChunk, None]:
         while True:
             start_line = await self._get_start_line()
-            yield start_line
+            yield HTTPMessageChunk(start_line, False)
             self._validate_start_line(start_line)
             headers = await self._get_headers()
-            yield headers
+            yield HTTPMessageChunk(headers, False)
             async for chunk in self._get_body(headers):
                 yield chunk
-            self._messages_read += 1
-            await self._messages_read_timestamps.put(time.monotonic())
 
     def _validate_start_line(self, raw_start_line: bytes) -> None:
         raise NotImplementedError
