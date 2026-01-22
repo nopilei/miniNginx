@@ -2,7 +2,7 @@ import asyncio
 from typing import AsyncIterable
 
 from config import Config
-from http_utils.http_reader import BaseHTTPReader
+from http_utils.http_reader import BaseHTTPReader, HTTPMessageChunk
 
 
 class BaseHTTPIterator:
@@ -14,23 +14,16 @@ class BaseHTTPIterator:
         self.read_timeout = read_timeout_s
         self.http_reader = self.http_reader_class(reader)
         self.http_iterator = self.http_reader.chunk_iterator()
-    
-    @property
-    def messages_read(self) -> int:
-        return self.http_reader.messages_read
-
-    @property
-    def messages_read_timestamps(self) -> asyncio.Queue:
-        return self.http_reader.messages_read_timestamps
+        self.messages_read = 0
 
     def __aiter__(self):
         return self
 
-    async def __anext__(self) -> bytes:
+    async def __anext__(self) -> HTTPMessageChunk:
         if self.reader.at_eof():
             raise StopAsyncIteration
         try:
-            return await asyncio.wait_for(anext(self.http_iterator), 10)
+            return await asyncio.wait_for(anext(self.http_iterator), self.read_timeout)
         except TimeoutError as exc:
             raise self.timeout_err from exc
 
@@ -51,7 +44,7 @@ class BaseConnection:
         self.write_timeout_s = config.timeouts.write_ms / 1000
         self.http_iterator = self.http_iterator_class(self.reader, self.read_timeout_s)
 
-    def iterator(self) -> AsyncIterable[bytes]:
+    def iterator(self) -> AsyncIterable[HTTPMessageChunk]:
         return self.http_iterator
 
     @property

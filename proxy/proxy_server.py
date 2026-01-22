@@ -91,15 +91,38 @@ class ProxyServer:
             latency = response_time - request_time
             REQUEST_LATENCY.labels(upstream=upstream_addr).observe(latency)
 
-    async def client_to_upstream(self, client_conn: BaseConnection, upstream_conn: BaseConnection) -> None:
+    async def client_to_upstream(self, client_conn: BaseConnection) -> None:
         logger.info("Getting data from client...")
-        async for data in client_conn.iterator():
-            await upstream_conn.write(data)
 
-    async def upstream_to_client(self, client_conn: BaseConnection, upstream_conn: BaseConnection) -> None:
+        upstream_conn, upstream_queue = None, None
+        try:
+            async for data in client_conn.iterator():
+                if data.is_message_start:
+                    upstream_conn, upstream_queue = await self.pool.acquire()
+                    start_time = asyncio.get_event_loop().time()
+                    asyncio.create_task(self.upstream_to_client(client_conn, upstream_conn, upstream_queue, start_time))
+                elif upstream_conn is None:
+                    raise ValueError
+                await upstream_conn.write(data.chunk)
+        finally:
+            if upstream_conn and upstream_queue:
+                await self.cleanup(client_conn, upstream_conn, upstream_queue)
+
+
+    async def upstream_to_client(self, client_conn: BaseConnection, upstream_conn: BaseConnection, upstream_queue: asyncio.Queue, start_time: float) -> None:
         logger.info("Sending response to client...")
-        async for data in upstream_conn.iterator():
-            await self.send_response(client_conn, data)
+
+        try:
+            async for data in upstream_conn.iterator():
+                await self.send_response(client_conn, data.chunk)
+                if data.is_message_end:
+                    end_time = asyncio.get_event_loop().time()
+                    REQUEST_LATENCY.labels(upstream=upstream_conn.addr).observe(end_time - start_time)
+                    await self.pool.release(upstream_queue, upstream_conn, True)
+                    return
+        except Exception:
+            await self.pool.release(upstream_queue, upstream_conn, False)
+
 
     async def send_response(self, client_conn: BaseConnection, response: bytes):
         try:
