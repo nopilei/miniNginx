@@ -12,6 +12,7 @@ class HTTPParseError(Exception):
 @dataclass
 class HTTPMessageChunk:
     chunk: bytes
+    is_message_start: bool
     is_message_end: bool
 
 
@@ -54,10 +55,10 @@ class BaseHTTPReader:
     async def _chunk_iterator(self) -> AsyncGenerator[HTTPMessageChunk, None]:
         while True:
             start_line = await self._get_start_line()
-            yield HTTPMessageChunk(start_line, False)
+            yield HTTPMessageChunk(start_line, is_message_start=True, is_message_end=False)
             self._validate_start_line(start_line)
             headers = await self._get_headers()
-            yield HTTPMessageChunk(headers, False)
+            yield HTTPMessageChunk(headers, is_message_start=False, is_message_end=False)
             async for chunk in self._get_body(headers):
                 yield chunk
 
@@ -74,10 +75,10 @@ class BaseHTTPReader:
                 to_read = min(chunk_size, content_length - bytes_read)
                 is_message_end = content_length - bytes_read <= chunk_size
                 chunk = await self.reader.readexactly(to_read)
-                yield HTTPMessageChunk(chunk, is_message_end)
+                yield HTTPMessageChunk(chunk, is_message_start=False, is_message_end=is_message_end)
                 bytes_read += to_read
         else:
-            yield HTTPMessageChunk(b'', True)
+            yield HTTPMessageChunk(b'', is_message_start=False, is_message_end=True)
 
     def _get_parsed_headers(self, raw_headers: bytes) -> dict[bytes, bytes]:
         headers = {}

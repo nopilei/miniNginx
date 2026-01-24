@@ -23,7 +23,10 @@ class BaseHTTPIterator:
         if self.reader.at_eof():
             raise StopAsyncIteration
         try:
-            return await asyncio.wait_for(anext(self.http_iterator), self.read_timeout)
+            chunk = await asyncio.wait_for(anext(self.http_iterator), self.read_timeout)
+            if chunk.is_message_end:
+                self.messages_read += 1
+            return chunk
         except TimeoutError as exc:
             raise self.timeout_err from exc
 
@@ -54,10 +57,6 @@ class BaseConnection:
     @property
     def messages_read(self) -> int:
         return self.http_iterator.messages_read
-
-    @property
-    def messages_read_timestamps(self) -> asyncio.Queue:
-        return self.http_iterator.messages_read_timestamps
 
     async def write(self, response: bytes) -> None:
         if self.writer.is_closing():

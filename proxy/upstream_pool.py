@@ -14,6 +14,17 @@ class PoolConnectionError(Exception):
 logger = logging.getLogger(__name__)
 
 
+class PoolMember:
+    def __init__(self, upstream_queue: asyncio.Queue, connection: BaseConnection):
+        self.upstream_queue = upstream_queue
+        self.connection = connection
+        self.is_returned = False
+
+    @property
+    def response_is_read(self) -> bool:
+        return self.connection.messages_read == 1
+
+
 class RoundRobinUpstreamPool:
     def __init__(self, config: Config):
         self.config = config
@@ -36,7 +47,7 @@ class RoundRobinUpstreamPool:
         if not self.upstreams:
             raise PoolConnectionError("Failed connect to upstreams")
 
-    async def acquire(self) -> tuple[BaseConnection, asyncio.Queue]:
+    async def acquire(self) -> PoolMember:
         upstream = self.upstreams.popleft()
         self.upstreams.append(upstream)
 
@@ -44,14 +55,19 @@ class RoundRobinUpstreamPool:
             connection = await asyncio.wait_for(upstream.get(), self.connect_timeout_s)
         except TimeoutError as exc:
             raise PoolConnectionError("Timeout on getting upstream from pool") from exc
-        return connection, upstream
+        return PoolMember(upstream, connection)
 
-    async def release(self, upstream: asyncio.Queue, connection: BaseConnection, is_healthy: bool):
+    async def release(self, pool_member: PoolMember, is_healthy: bool):
+        if pool_member.is_returned:
+            return
+
+        queue, connection = pool_member.upstream_queue, pool_member.connection
         if is_healthy:
-            await upstream.put(UpstreamConnection(connection.reader, connection.writer, self.config))
+            await queue.put(UpstreamConnection(connection.reader, connection.writer, self.config))
         else:
             host, port = connection.writer.get_extra_info('socket').getpeername()
-            await upstream.put(await self.connect_upstream(host, port))
+            await queue.put(await self.connect_upstream(host, port))
+        pool_member.is_returned = True
 
     async def connect_upstream(self, host: str, port: int) -> BaseConnection:
         reader, writer = await asyncio.open_connection(host=host, port=port)
