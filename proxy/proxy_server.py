@@ -1,13 +1,12 @@
 import asyncio
 import logging
-from contextlib import suppress
 
 from config import Config
 from http_utils.error_responses import get_error_response
 from http_utils.external.base import BaseConnection
 from http_utils.http_reader import HTTPParseError
 from http_utils.external.upstream import UpstreamConnectionTimeout
-from metrics import REQUEST_LATENCY, UPSTREAM_TIMEOUTS
+from metrics import REQUEST_LATENCY, UPSTREAM_TIMEOUTS, POOL_TIMEOUTS
 from upstream_pool import PoolConnectionError, RoundRobinUpstreamPool, PoolMember
 from http_utils.external.client import ClientConnectionTimeout, ClientConnectionClosed, ClientConnection
 from context import client_addr_var
@@ -47,10 +46,11 @@ class ProxyServer:
             logger.error("Error parsing client http data")
             await self.send_parsing_error_response(client_conn)
         except PoolConnectionError as exc:
+            POOL_TIMEOUTS.inc()
             logger.error(exc)
             await self.send_bad_gateway_response(client_conn)
         except Exception as exc:
-            logger.exception(exc)
+            logger.error(exc)
         finally:
             await client_conn.close()
 
@@ -60,7 +60,7 @@ class ProxyServer:
                 await task
             except UpstreamConnectionTimeout:
                 if not pool_member.response_is_read:
-                    UPSTREAM_TIMEOUTS.inc()
+                    UPSTREAM_TIMEOUTS.labels(upstream=pool_member.connection.addr).inc()
                     raise
             finally:
                 await self.pool.release(pool_member, is_healthy=pool_member.response_is_read)
@@ -69,26 +69,28 @@ class ProxyServer:
         logger.info("Getting data from client...")
 
         pool_member, task = None, None
+        loop = asyncio.get_event_loop()
         try:
             async for data in client_conn.iterator():
                 if data.is_message_start:
+                    start_time = loop.time()
                     await self.cleanup(pool_member, task)
                     pool_member = await self.pool.acquire()
                     logger.info(f"Got upstream connection: {pool_member.connection.addr}")
-                    start_time = asyncio.get_event_loop().time()
-                    task = asyncio.create_task(self.upstream_to_client(client_conn, pool_member.connection, start_time))
+                    task = asyncio.create_task(self.upstream_to_client(client_conn, pool_member, start_time))
 
                 await pool_member.connection.write(data.chunk)
         finally:
             await self.cleanup(pool_member, task)
 
-    async def upstream_to_client(self, client_conn: BaseConnection, upstream_conn: BaseConnection, start_time: float) -> None:
+    async def upstream_to_client(self, client_conn: BaseConnection, pool_member: PoolMember, start_time: float) -> None:
         logger.info("Sending response to client...")
-        async for data in upstream_conn.iterator():
+        async for data in pool_member.connection.iterator():
             await self.send_response(client_conn, data.chunk)
             if data.is_message_end:
                 end_time = asyncio.get_event_loop().time()
-                REQUEST_LATENCY.labels(upstream=upstream_conn.addr).observe(end_time - start_time)
+                REQUEST_LATENCY.labels(upstream=pool_member.connection.addr).observe(end_time - start_time)
+                await self.pool.release(pool_member, is_healthy=True)
                 return
 
     async def send_response(self, client_conn: BaseConnection, response: bytes):

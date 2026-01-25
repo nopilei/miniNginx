@@ -63,9 +63,15 @@ class BaseConnection:
             raise self.connection_closed_err
         else:
             self.writer.write(response)
-            await asyncio.wait_for(self.writer.drain(), self.write_timeout_s)
+            try:
+                await asyncio.wait_for(self.writer.drain(), self.write_timeout_s)
+            except Exception as exc:
+                raise self.connection_closed_err from exc
 
     async def close(self):
         self.writer.close()
-        await self.writer.wait_closed()
+        try:
+            await self.writer.wait_closed()
+        except BrokenPipeError:
+            pass
 

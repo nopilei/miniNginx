@@ -55,10 +55,9 @@ class BaseHTTPReader:
     async def _chunk_iterator(self) -> AsyncGenerator[HTTPMessageChunk, None]:
         while True:
             start_line = await self._get_start_line()
-            yield HTTPMessageChunk(start_line, is_message_start=True, is_message_end=False)
             self._validate_start_line(start_line)
             headers = await self._get_headers()
-            yield HTTPMessageChunk(headers, is_message_start=False, is_message_end=False)
+            yield HTTPMessageChunk(start_line + headers, is_message_start=True, is_message_end=False)
             async for chunk in self._get_body(headers):
                 yield chunk
 
@@ -99,7 +98,7 @@ class BaseHTTPReader:
 class HTTPRequestReader(BaseHTTPReader):
     def _validate_start_line(self, raw_start_line: bytes) -> None:
         method, path, version = raw_start_line[:-2].split(b' ')
-        logger.info(f"Getting request. {method} {path} {version}")
+        # logger.info(f"Getting request. {method} {path} {version}")
 
         if http.HTTPMethod(method.decode()) not in http.HTTPMethod:
             raise ValueError(f'Wrong method: {method}')
@@ -114,7 +113,7 @@ class HTTPRequestReader(BaseHTTPReader):
 class HTTPResponseReader(BaseHTTPReader):
     def _validate_start_line(self, raw_start_line: bytes) -> None:
         version, status, reason = raw_start_line[:-2].split(b' ', 2)
-        logger.info(f"Getting response. {status} {reason}")
+        # logger.info(f"Getting response. {status} {reason}")
 
         if http.HTTPStatus(int(status)) not in http.HTTPStatus:
             raise ValueError(f'Wrong status code: {status}')

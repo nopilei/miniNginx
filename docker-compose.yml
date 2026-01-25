@@ -23,7 +23,6 @@ services:
       
   
   echo_1:
-    image: python:3.11-slim
     volumes:
       - .:/app
     build:
@@ -43,7 +42,6 @@ services:
     command: bash run_echo.sh
 
   echo_2:
-    image: python:3.11-slim
     volumes:
       - .:/app
     build:
@@ -61,6 +59,7 @@ services:
     ports:
       - "9002:9002"
     command: bash run_echo.sh
+
   prometheus:
     image: prom/prometheus:latest
     command:

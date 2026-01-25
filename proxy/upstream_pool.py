@@ -5,6 +5,7 @@ from collections import deque
 from config import Config
 from http_utils.external.base import BaseConnection
 from http_utils.external.upstream import UpstreamConnection
+from metrics import POOL_LATENCY
 
 
 class PoolConnectionError(Exception):
@@ -50,9 +51,11 @@ class RoundRobinUpstreamPool:
     async def acquire(self) -> PoolMember:
         upstream = self.upstreams.popleft()
         self.upstreams.append(upstream)
-
+        loop = asyncio.get_event_loop()
         try:
+            pool_start = loop.time()
             connection = await asyncio.wait_for(upstream.get(), self.connect_timeout_s)
+            POOL_LATENCY.observe(loop.time() - pool_start)
         except TimeoutError as exc:
             raise PoolConnectionError("Timeout on getting upstream from pool") from exc
         return PoolMember(upstream, connection)
