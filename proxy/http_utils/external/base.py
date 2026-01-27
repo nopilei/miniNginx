@@ -6,6 +6,9 @@ from http_utils.http_reader import BaseHTTPReader, HTTPMessageChunk
 
 
 class BaseHTTPIterator:
+    """
+    Обертка над BaseHTTPReader, устанавливает таймауты на чтение данных из клиента или апстрима.
+    """
     http_reader_class: type[BaseHTTPReader]
     timeout_err: Exception
 
@@ -32,6 +35,11 @@ class BaseHTTPIterator:
 
 
 class BaseConnection:
+    """
+    Обертка над сырыми потоками asyncio.Stream*.
+
+    Читает и пишет согласно таймаутам.
+    """
     connection_closed_err: Exception
     http_iterator_class: type[BaseHTTPIterator]
 
@@ -53,7 +61,7 @@ class BaseConnection:
     @property
     def addr(self) -> tuple[str, int]:
         return self.writer.get_extra_info("socket").getpeername()
-    
+
     @property
     def messages_read(self) -> int:
         return self.http_iterator.messages_read
@@ -65,8 +73,8 @@ class BaseConnection:
             self.writer.write(response)
             try:
                 await asyncio.wait_for(self.writer.drain(), self.write_timeout_s)
-            except Exception as exc:
-                raise self.connection_closed_err from exc
+            except Exception:
+                raise self.connection_closed_err
 
     async def close(self):
         self.writer.close()
@@ -74,4 +82,3 @@ class BaseConnection:
             await self.writer.wait_closed()
         except BrokenPipeError:
             pass
-

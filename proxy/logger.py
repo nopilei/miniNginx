@@ -11,7 +11,7 @@ class LoggingFilter(logging.Filter):
         return True
 
 
-def setup_logging(level = logging.INFO):
+def setup_logging(level=logging.INFO):
     logging.config.dictConfig({
         "version": 1,
         "disable_existing_loggers": False,

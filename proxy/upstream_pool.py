@@ -27,6 +27,11 @@ class PoolMember:
 
 
 class RoundRobinUpstreamPool:
+    """
+    Менеджер пула соединений к апстримам.
+
+    Выдача соединения идет по round-robin.
+    """
     def __init__(self, config: Config):
         self.config = config
         self.upstream_addrs = config.upstreams
@@ -51,13 +56,14 @@ class RoundRobinUpstreamPool:
     async def acquire(self) -> PoolMember:
         upstream = self.upstreams.popleft()
         self.upstreams.append(upstream)
+
         loop = asyncio.get_event_loop()
         try:
             pool_start = loop.time()
             connection = await asyncio.wait_for(upstream.get(), self.connect_timeout_s)
             POOL_LATENCY.observe(loop.time() - pool_start)
-        except TimeoutError as exc:
-            raise PoolConnectionError("Timeout on getting upstream from pool") from exc
+        except TimeoutError:
+            raise PoolConnectionError("Timeout on getting upstream from pool")
         return PoolMember(upstream, connection)
 
     async def release(self, pool_member: PoolMember, is_healthy: bool):

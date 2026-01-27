@@ -21,6 +21,14 @@ class ProxyServer:
         self.total_timeout_s = self.config.timeouts.total_ms / 1000
         self.pool = RoundRobinUpstreamPool(config)
 
+    async def start_server(self) -> None:
+        await self.pool.prepare_connections()
+        host, port = self.config.listen.split(":")
+        server = await asyncio.start_server(self.client_handler, host=host, port=port)
+        async with server:
+            logger.info(f"Starting server host={host} port={port}")
+            await server.serve_forever()
+
     async def client_handler(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         async with self.conn_semaphore:
             client_connection = ClientConnection(reader, writer, self.config)
@@ -68,20 +76,20 @@ class ProxyServer:
     async def proxy_client(self, client_conn: BaseConnection) -> None:
         logger.info("Getting data from client...")
 
-        pool_member, task = None, None
+        pool_member, response_task = None, None
         loop = asyncio.get_event_loop()
         try:
             async for data in client_conn.iterator():
                 if data.is_message_start:
                     start_time = loop.time()
-                    await self.cleanup(pool_member, task)
+                    await self.cleanup(pool_member, response_task)
                     pool_member = await self.pool.acquire()
                     logger.info(f"Got upstream connection: {pool_member.connection.addr}")
-                    task = asyncio.create_task(self.upstream_to_client(client_conn, pool_member, start_time))
+                    response_task = asyncio.create_task(self.upstream_to_client(client_conn, pool_member, start_time))
 
                 await pool_member.connection.write(data.chunk)
         finally:
-            await self.cleanup(pool_member, task)
+            await self.cleanup(pool_member, response_task)
 
     async def upstream_to_client(self, client_conn: BaseConnection, pool_member: PoolMember, start_time: float) -> None:
         logger.info("Sending response to client...")
@@ -93,7 +101,7 @@ class ProxyServer:
                 await self.pool.release(pool_member, is_healthy=True)
                 return
 
-    async def send_response(self, client_conn: BaseConnection, response: bytes):
+    async def send_response(self, client_conn: BaseConnection, response: bytes) -> None:
         try:
             await client_conn.write(response)
         except ClientConnectionClosed:
@@ -101,16 +109,8 @@ class ProxyServer:
 
     async def send_parsing_error_response(self, client_conn: BaseConnection) -> None:
         error = get_error_response(400, "Bad Request", "Invalid request")
-        await self.send_response(client_conn, error.full)
+        await self.send_response(client_conn, error)
 
-    async def send_bad_gateway_response(self, client_conn: BaseConnection):
+    async def send_bad_gateway_response(self, client_conn: BaseConnection) -> None:
         error = get_error_response(502, "Bad Gateway", "Internal error")
-        await self.send_response(client_conn, error.full)
-
-    async def start_server(self) -> None:
-        await self.pool.prepare_connections()
-        host, port = self.config.listen.split(":")
-        server = await asyncio.start_server(self.client_handler, host=host, port=port)
-        async with server:
-            logger.info(f"Starting server host={host} port={port}")
-            await server.serve_forever()
+        await self.send_response(client_conn, error)

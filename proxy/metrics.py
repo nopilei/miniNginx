@@ -55,9 +55,13 @@ async def handle_metrics(reader, writer):
     body = generate_latest()
     response = (
             b"HTTP/1.1 200 OK\r\n"
-            b"Content-Type: " + CONTENT_TYPE_LATEST.encode() + b"\r\n"
-                                                               b"Content-Length: " + str(len(body)).encode() + b"\r\n"
-                                                                                                               b"Connection: close\r\n\r\n"
+            b"Content-Type: " + CONTENT_TYPE_LATEST.encode() + (
+                    b"\r\n"
+                    b"Content-Length: " + str(len(body)).encode() +
+                    b"\r\n"
+                    b"Connection: close"
+                    b"\r\n\r\n"
+            )
             + body
     )
 

@@ -19,27 +19,12 @@ class HTTPMessageChunk:
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class HTTPResponse:
-    version: bytes
-    status: bytes
-    reason: bytes
-    headers: dict[bytes, bytes]
-    body: bytes
-
-    def add_header(self, key: bytes, value: bytes) -> None:
-        self.headers[key] = value
-
-    @property
-    def full(self) -> bytes:
-        crlf = b'\r\n'
-        request_line = b' '.join([self.version, self.status, self.reason])
-        headers = crlf.join(k + b': ' + v for k, v in self.headers.items())
-        body = self.body
-        return request_line + crlf + headers + crlf * 2 + body
-
-
 class BaseHTTPReader:
+    """
+    Читает из asyncio.StreamReader байты по чанкам, парсит и валидирует по формату HTTP сообщения.
+
+    Таймауты обрабатываются в клиентском коде.
+    """
     MIN_VERSION = b'HTTP/1.1'
 
     def __init__(self, reader: asyncio.StreamReader):
@@ -49,8 +34,8 @@ class BaseHTTPReader:
         try:
             async for chunk in self._chunk_iterator():
                 yield chunk
-        except Exception as exc:
-            raise HTTPParseError('Invalid bytes from external resource') from exc
+        except Exception:
+            raise HTTPParseError('Invalid bytes from external resource')
 
     async def _chunk_iterator(self) -> AsyncGenerator[HTTPMessageChunk, None]:
         while True:

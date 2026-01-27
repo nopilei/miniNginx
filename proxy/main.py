@@ -16,5 +16,6 @@ async def run(config_path: str):
         start_metrics_server()
     )
 
+
 if __name__ == '__main__':
     asyncio.run(run(sys.argv[1]))
