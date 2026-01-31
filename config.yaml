@@ -3,12 +3,12 @@ upstreams:
   - host: "localhost"
     port: 9001
 timeouts:
-  connect_ms: 6000
-  read_ms: 15000
-  write_ms: 15000
-  total_ms: 3000000
+  connect_ms: 2000
+  read_ms: 5000
+  write_ms: 5000
+  total_ms: 15000
 limits:
-  max_client_conns: 3000
-  max_conns_per_upstream: 300
+  max_client_conns: 5000
+  max_conns_per_upstream: 200
 logging:
   level: "info"

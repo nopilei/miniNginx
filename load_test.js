@@ -1,14 +1,15 @@
 import http from "k6/http";
 
 export const options = {
+  noVUConnectionReuse: false,
   scenarios: {
     high_rps: {
       executor: "constant-arrival-rate",
-      rate: 1200,
+      rate: 5000,
       timeUnit: "1s",
-      duration: "360s",
-      preAllocatedVUs: 2,
-      maxVUs: 3000,
+      duration: "45s",
+      preAllocatedVUs: 100,
+      maxVUs: 1500,
     },
   },
 };
