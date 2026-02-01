@@ -1,5 +1,7 @@
-import asyncio
 import logging
+import queue
+import socket
+import time
 from collections import deque
 
 from config import Config
@@ -16,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 
 class PoolMember:
-    def __init__(self, upstream_queue: asyncio.Queue, connection: BaseConnection):
+    def __init__(self, upstream_queue: queue.Queue, connection: BaseConnection):
         self.upstream_queue = upstream_queue
         self.connection = connection
         self.is_returned = False
@@ -36,16 +38,16 @@ class RoundRobinUpstreamPool:
         self.config = config
         self.upstream_addrs = config.upstreams
         self.connect_timeout_s = config.timeouts.connect_ms / 1000
-        self.upstreams: deque[asyncio.Queue[BaseConnection]] = deque()
+        self.upstreams: deque[queue.Queue[BaseConnection]] = deque()
 
-    async def prepare_connections(self) -> None:
+    def prepare_connections(self) -> None:
         for upstream_addr in self.upstream_addrs:
             host, port = upstream_addr.host, upstream_addr.port
-            connections = asyncio.Queue()
+            connections = queue.Queue()
             for _ in range(self.config.limits.max_conns_per_upstream):
                 try:
-                    connection = await self.connect_upstream(host, port)
-                    await connections.put(connection)
+                    connection = self.connect_upstream(host, port)
+                    connections.put(connection)
                 except Exception as exc:
                     logger.exception(exc)
             if connections:
@@ -53,31 +55,31 @@ class RoundRobinUpstreamPool:
         if not self.upstreams:
             raise PoolConnectionError("Failed connect to upstreams")
 
-    async def acquire(self) -> PoolMember:
+    def acquire(self) -> PoolMember:
         upstream = self.upstreams.popleft()
         self.upstreams.append(upstream)
 
-        loop = asyncio.get_event_loop()
         try:
-            pool_start = loop.time()
-            connection = await asyncio.wait_for(upstream.get(), self.connect_timeout_s)
-            POOL_LATENCY.observe(loop.time() - pool_start)
-        except TimeoutError:
+            pool_start = time.monotonic()
+            connection = upstream.get(timeout=self.connect_timeout_s)
+            POOL_LATENCY.observe(time.monotonic() - pool_start)
+        except queue.Empty:
             raise PoolConnectionError("Timeout on getting upstream from pool")
         return PoolMember(upstream, connection)
 
-    async def release(self, pool_member: PoolMember, is_healthy: bool):
+    def release(self, pool_member: PoolMember, is_healthy: bool):
         if pool_member.is_returned:
             return
 
-        queue, connection = pool_member.upstream_queue, pool_member.connection
+        upstream_queue, connection = pool_member.upstream_queue, pool_member.connection
         if is_healthy:
-            await queue.put(UpstreamConnection(connection.reader, connection.writer, self.config))
+            upstream_queue.put(UpstreamConnection(connection.sock, self.config))
         else:
-            host, port = connection.writer.get_extra_info('socket').getpeername()
-            await queue.put(await self.connect_upstream(host, port))
+            host, port = connection.sock.getpeername()
+            upstream_queue.put(self.connect_upstream(host, port))
         pool_member.is_returned = True
 
-    async def connect_upstream(self, host: str, port: int) -> BaseConnection:
-        reader, writer = await asyncio.open_connection(host=host, port=port)
-        return UpstreamConnection(reader, writer, self.config)
+    def connect_upstream(self, host: str, port: int) -> BaseConnection:
+        sock = socket.create_connection((host, port), timeout=self.connect_timeout_s)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+        return UpstreamConnection(sock, self.config)

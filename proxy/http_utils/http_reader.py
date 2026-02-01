@@ -1,8 +1,8 @@
-import asyncio
 import http
 import logging
+import socket
 from dataclasses import dataclass
-from typing import AsyncGenerator
+from typing import Generator
 
 
 class HTTPParseError(Exception):
@@ -27,29 +27,38 @@ class BaseHTTPReader:
     """
     MIN_VERSION = b'HTTP/1.1'
 
-    def __init__(self, reader: asyncio.StreamReader):
-        self.reader = reader
+    def __init__(self, sock: socket.socket):
+        self.sock_file = sock.makefile('rb')
 
-    async def chunk_iterator(self) -> AsyncGenerator[HTTPMessageChunk, None]:
+    def chunk_iterator(self) -> Generator[HTTPMessageChunk, None, None]:
         try:
-            async for chunk in self._chunk_iterator():
+            for chunk in self._chunk_iterator():
+                if not chunk.chunk:
+                    raise StopIteration
                 yield chunk
-        except Exception:
+        except ValueError:
             raise HTTPParseError('Invalid bytes from external resource')
 
-    async def _chunk_iterator(self) -> AsyncGenerator[HTTPMessageChunk, None]:
+    def _chunk_iterator(self) -> Generator[HTTPMessageChunk, None, None]:
         while True:
-            start_line = await self._get_start_line()
+            start_line = self._get_start_line()
             self._validate_start_line(start_line)
-            headers = await self._get_headers()
+            headers = self._get_headers()
             yield HTTPMessageChunk(start_line + headers, is_message_start=True, is_message_end=False)
-            async for chunk in self._get_body(headers):
+            for chunk in self._get_body(headers):
                 yield chunk
 
-    async def _get_headers(self) -> bytes:
-        return await self.reader.readuntil(b'\r\n\r\n')
+    def _get_headers(self) -> bytes:
+        headers = b''
 
-    async def _get_body(self, headers: bytes) -> AsyncGenerator[HTTPMessageChunk, None]:
+        while True:
+            line = self.sock_file.readline()
+            headers += line
+            if line == b'\r\n':
+                break
+        return headers
+
+    def _get_body(self, headers: bytes) -> Generator[HTTPMessageChunk, None, None]:
         lower_case_headers = self._get_parsed_headers(headers)
 
         if content_length := int(lower_case_headers.get(b'content-length', 0)):
@@ -58,7 +67,7 @@ class BaseHTTPReader:
             while bytes_read < content_length:
                 to_read = min(chunk_size, content_length - bytes_read)
                 is_message_end = content_length - bytes_read <= chunk_size
-                chunk = await self.reader.readexactly(to_read)
+                chunk = self.sock_file.read(to_read)
                 yield HTTPMessageChunk(chunk, is_message_start=False, is_message_end=is_message_end)
                 bytes_read += to_read
         else:
@@ -73,8 +82,8 @@ class BaseHTTPReader:
 
         return headers
 
-    async def _get_start_line(self) -> bytes:
-        return await self.reader.readuntil(b'\r\n')
+    def _get_start_line(self) -> bytes:
+        return self.sock_file.readline()
 
     def _validate_start_line(self, raw_start_line: bytes) -> None:
         raise NotImplementedError

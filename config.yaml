@@ -9,6 +9,6 @@ timeouts:
   total_ms: 15000
 limits:
   max_client_conns: 5000
-  max_conns_per_upstream: 200
+  max_conns_per_upstream: 300
 logging:
   level: "info"
