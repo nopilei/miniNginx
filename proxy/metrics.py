@@ -1,4 +1,7 @@
-import asyncio
+import threading
+import time
+import socket
+
 import psutil
 
 from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST, Gauge
@@ -27,31 +30,24 @@ POOL_LATENCY = Histogram(
 )
 
 ACTIVE_TASKS = Gauge("active_tasks", "Number of active asyncio tasks")
-CPU_USER = Gauge('process_cpu_seconds_total', 'CPU user time')
-MEM_RSS = Gauge('process_resident_memory_bytes', 'Resident memory in bytes')
-MEM_VIRTUAL = Gauge('process_virtual_memory_bytes', 'Virtual memory in bytes')
+# CPU_USER = Gauge('process_cpu_seconds_total', 'CPU user time')
+# MEM_RSS = Gauge('process_resident_memory_bytes', 'Resident memory in bytes')
+# MEM_VIRTUAL = Gauge('process_virtual_memory_bytes', 'Virtual memory in bytes')
 
 process = psutil.Process()
 
 
-async def monitor_active_tasks(interval: float = 1.0):
+def monitor_active_threads(interval: float = 1.0):
     while True:
-        tasks = asyncio.all_tasks(asyncio.get_event_loop())
-        active_count = sum(1 for t in tasks if not t.done())
+        active_count = threading.active_count()
         ACTIVE_TASKS.set(active_count)
-        CPU_USER.set(process.cpu_times().user)
-        MEM_RSS.set(process.memory_info().rss)
-        MEM_VIRTUAL.set(process.memory_info().vms)
-        await asyncio.sleep(interval)
+        # CPU_USER.set(process.cpu_times().user)
+        # MEM_RSS.set(process.memory_info().rss)
+        # MEM_VIRTUAL.set(process.memory_info().vms)
+        time.sleep(interval)
 
 
-async def handle_metrics(reader, writer):
-    try:
-        await reader.readuntil(b"\r\n\r\n")
-    except asyncio.IncompleteReadError:
-        writer.close()
-        return
-
+def handle_metrics(sock: socket.socket):
     body = generate_latest()
     response = (
             b"HTTP/1.1 200 OK\r\n"
@@ -65,13 +61,20 @@ async def handle_metrics(reader, writer):
             + body
     )
 
-    writer.write(response)
-    await writer.drain()
-    writer.close()
+    sock.sendall(response)
+    sock.close()
 
 
-async def start_metrics_server():
-    server = await asyncio.start_server(handle_metrics, "0.0.0.0", 9100)
-    asyncio.create_task(monitor_active_tasks())
-    async with server:
-        await server.serve_forever()
+def start_metrics_server():
+    threading.Thread(
+        target=monitor_active_threads,
+        daemon=True,
+    ).start()
+    server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server_sock.bind(("0.0.0.0", 9100))
+    server_sock.listen()
+
+    while True:
+        client_sock, addr = server_sock.accept()
+        handle_metrics(client_sock)
