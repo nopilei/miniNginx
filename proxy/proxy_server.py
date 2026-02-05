@@ -1,8 +1,8 @@
-import asyncio
 import logging
 import socket
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 from config import Config
 from http_utils.error_responses import get_error_response
@@ -20,41 +20,47 @@ logger = logging.getLogger(__name__)
 class ProxyServer:
     def __init__(self, config: Config):
         self.config = config
-        self.conn_semaphore = threading.BoundedSemaphore(config.limits.max_client_conns)
         self.total_timeout_s = self.config.timeouts.total_ms / 1000
+        self.executor = ThreadPoolExecutor(max_workers=self.config.limits.max_client_conns)
+        self.shutdown_event = threading.Event()
+        self.server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.pool = RoundRobinUpstreamPool(config)
 
     def start_server(self) -> None:
         self.pool.prepare_connections()
 
         host, port = self.config.listen.split(":")
-        port = int(port)
-
-        server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        server_sock.bind((host, port))
-        server_sock.listen()
+        self.server_sock.bind((host, int(port)))
+        self.server_sock.listen()
 
         logger.info(f"Starting server host={host} port={port}")
+        try:
+            while not self.shutdown_event.is_set():
+                try:
+                    client_sock, addr = self.server_sock.accept()
+                except OSError:
+                    # Уже закрыли server_sock
+                    break
+                try:
+                    self.executor.submit(self.client_handler, client_sock)
+                except RuntimeError:
+                    # executor уже shutdown
+                    client_sock.close()
+        finally:
+            self.shutdown()
 
-        while True:
-            self.conn_semaphore.acquire()
-            client_sock, addr = server_sock.accept()
-            client_sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
-            thread = threading.Thread(
-                target=self.client_handler,
-                args=(client_sock, self.conn_semaphore),
-                daemon=True,
-            )
-            thread.start()
+    def shutdown(self):
+        self.shutdown_event.set()
+        self.server_sock.close()  # разбудит accept()
+        self.executor.shutdown(wait=False)
 
-    def client_handler(self, sock: socket.socket, semaphore: threading.Semaphore) -> None:
+    def client_handler(self, sock: socket.socket) -> None:
         client_connection = ClientConnection(sock, self.config)
         token = client_addr_var.set(str(client_connection.addr))
         logger.info("Got new client connection.")
         self.process_client_connection(client_connection)
         client_addr_var.reset(token)
-        semaphore.release()
 
     def process_client_connection(self, client_conn: BaseConnection) -> None:
         logger.info('Processing new client connection.')

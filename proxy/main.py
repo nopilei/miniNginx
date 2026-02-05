@@ -16,11 +16,8 @@ def run(config_path: str):
     config = ConfigLoader(config_path).get_config()
     proxy_server = ProxyServer(config)
     with ThreadPoolExecutor(max_workers=2) as executor:
-        futures = [
-            executor.submit(proxy_server.start_server),
-            executor.submit(start_metrics_server),
-        ]
-        wait(futures)
+        executor.submit(proxy_server.start_server)
+        executor.submit(start_metrics_server)
 
 
 if __name__ == '__main__':
