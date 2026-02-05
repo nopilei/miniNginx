@@ -30,9 +30,9 @@ POOL_LATENCY = Histogram(
 )
 
 ACTIVE_TASKS = Gauge("active_tasks", "Number of active asyncio tasks")
-# CPU_USER = Gauge('process_cpu_seconds_total', 'CPU user time')
-# MEM_RSS = Gauge('process_resident_memory_bytes', 'Resident memory in bytes')
-# MEM_VIRTUAL = Gauge('process_virtual_memory_bytes', 'Virtual memory in bytes')
+CPU_USER = Gauge('process_cpu_seconds_total', 'CPU user time')
+MEM_RSS = Gauge('process_resident_memory_bytes', 'Resident memory in bytes')
+MEM_VIRTUAL = Gauge('process_virtual_memory_bytes', 'Virtual memory in bytes')
 
 process = psutil.Process()
 
@@ -41,9 +41,9 @@ def monitor_active_threads(interval: float = 1.0):
     while True:
         active_count = threading.active_count()
         ACTIVE_TASKS.set(active_count)
-        # CPU_USER.set(process.cpu_times().user)
-        # MEM_RSS.set(process.memory_info().rss)
-        # MEM_VIRTUAL.set(process.memory_info().vms)
+        CPU_USER.set(process.cpu_times().user)
+        MEM_RSS.set(process.memory_info().rss)
+        MEM_VIRTUAL.set(process.memory_info().vms)
         time.sleep(interval)
 
 
