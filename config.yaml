@@ -2,6 +2,10 @@ listen: "0.0.0.0:8080"
 upstreams:
   - host: "localhost"
     port: 9001
+  - host: "localhost"
+    port: 9002
+  - host: "localhost"
+    port: 9003
 timeouts:
   connect_ms: 2000
   read_ms: 5000
@@ -9,6 +13,6 @@ timeouts:
   total_ms: 15000
 limits:
   max_client_conns: 5000
-  max_conns_per_upstream: 300
+  max_conns_per_upstream: 100
 logging:
   level: "info"

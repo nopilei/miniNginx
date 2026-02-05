@@ -21,6 +21,7 @@ def setup_logging(level=logging.INFO):
                 "format": (
                     "[%(asctime)s "
                     "%(levelname)s "
+                    "PID %(process)d "
                     "%(name)s "
                     "{client:%(client_addr)s}] "
                     "%(message)s "

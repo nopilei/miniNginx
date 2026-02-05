@@ -47,7 +47,6 @@ class RoundRobinUpstreamPool:
             for i in range(self.config.limits.max_conns_per_upstream):
                 try:
                     connection = self.connect_upstream(host, port)
-                    print(f"CONNECTED {i}\n")
                     connections.put(connection)
                 except Exception as exc:
                     logger.exception(exc)

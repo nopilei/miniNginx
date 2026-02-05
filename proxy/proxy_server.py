@@ -18,23 +18,18 @@ logger = logging.getLogger(__name__)
 
 
 class ProxyServer:
-    def __init__(self, config: Config):
+    def __init__(self, config: Config, server_sock: socket.socket):
         self.config = config
         self.total_timeout_s = self.config.timeouts.total_ms / 1000
         self.executor = ThreadPoolExecutor(max_workers=self.config.limits.max_client_conns)
         self.shutdown_event = threading.Event()
-        self.server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.server_sock = server_sock
         self.pool = RoundRobinUpstreamPool(config)
 
     def start_server(self) -> None:
         self.pool.prepare_connections()
 
-        host, port = self.config.listen.split(":")
-        self.server_sock.bind((host, int(port)))
-        self.server_sock.listen()
-
-        logger.info(f"Starting server host={host} port={port}")
+        logger.info(f"Starting server")
         try:
             while not self.shutdown_event.is_set():
                 try:
