@@ -16,3 +16,4 @@ limits:
   max_conns_per_upstream: 100
 logging:
   level: "info"
+workers: 4

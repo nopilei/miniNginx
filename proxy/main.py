@@ -17,7 +17,6 @@ def run(config: Config, server_sock: socket.socket):
     setup_logging()
     proxy_server = ProxyServer(config, server_sock)
     proxy_server.start_server()
-        # executor.submit(start_metrics_server)
 
 
 if __name__ == '__main__':
@@ -29,7 +28,7 @@ if __name__ == '__main__':
     server_sock.listen()
 
     processes = []
-    for _ in range(1):
+    for _ in range(config.workers):
         p = Process(target=run, args=(config, server_sock))
         p.start()
         processes.append(p)

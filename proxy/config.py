@@ -26,6 +26,7 @@ class LimitsConfig:
 @dataclass
 class Config:
     listen: str
+    workers: int
     upstreams: list[UpstreamConfig]
     timeouts: TimeoutsConfig
     limits: LimitsConfig
@@ -40,6 +41,7 @@ class ConfigLoader:
         self._validate_config(raw_config)
         return Config(
             listen=raw_config["listen"],
+            workers=raw_config["workers"],
             upstreams=[UpstreamConfig(**upstream) for upstream in raw_config["upstreams"]],
             timeouts=TimeoutsConfig(**raw_config["timeouts"]),
             limits=LimitsConfig(**raw_config["limits"]),
