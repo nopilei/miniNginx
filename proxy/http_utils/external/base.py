@@ -1,5 +1,4 @@
 import socket
-import struct
 from typing import Iterable
 
 from config import Config
@@ -66,8 +65,6 @@ class BaseConnection:
             raise self.connection_closed_err
 
     def close(self):
-        try:
-            self.sock.shutdown(socket.SHUT_RDWR)
-            self.sock.close()
-        except Exception:
-            pass
+        self.sock.shutdown(socket.SHUT_RDWR)
+        self.sock.close()
+        self.http_iterator.http_reader.sock_file.close()

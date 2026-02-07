@@ -76,6 +76,7 @@ class RoundRobinUpstreamPool:
             upstream_queue.put(UpstreamConnection(connection.sock, self.config))
         else:
             host, port = connection.sock.getpeername()
+            pool_member.connection.close()
             upstream_queue.put(self.connect_upstream(host, port))
         pool_member.is_returned = True
 

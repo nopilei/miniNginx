@@ -5,13 +5,13 @@
 ## Тесты
 
 #### Конфиг сервера
-![img_1.png](img_1.png)
+![img_8.png](img_8.png)
 
-rate: 5000, maxVU: 500 -> 3600 RPS
-![img.png](img.png)
+rate: 2500, workers=1 -> 1500 RPS
+![img_4.png](img_4.png)
 
-rate: 5000, maxVU: 1000 -> 2500 RPS
-![img_2.png](img_2.png)
+rate: 6500, workers=8 -> 6000 RPS
+![img_5.png](img_5.png)
 
-rate: 5000, maxVU: 1500 -> 2600 RPS
-![img_3.png](img_3.png)
+rate: 8000, workers=8, logs off -> 7700 RPS
+![img_7.png](img_7.png)

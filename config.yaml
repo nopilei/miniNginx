@@ -12,8 +12,8 @@ timeouts:
   write_ms: 5000
   total_ms: 15000
 limits:
-  max_client_conns: 5000
+  max_client_conns: 500
   max_conns_per_upstream: 100
 logging:
   level: "info"
-workers: 4
+workers: 8

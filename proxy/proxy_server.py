@@ -34,6 +34,7 @@ class ProxyServer:
             while not self.shutdown_event.is_set():
                 try:
                     client_sock, addr = self.server_sock.accept()
+                    client_sock.settimeout(self.total_timeout_s)
                 except OSError:
                     # Уже закрыли server_sock
                     break
@@ -48,7 +49,7 @@ class ProxyServer:
     def shutdown(self):
         self.shutdown_event.set()
         self.server_sock.close()  # разбудит accept()
-        self.executor.shutdown(wait=False)
+        self.executor.shutdown(wait=True)
 
     def client_handler(self, sock: socket.socket) -> None:
         client_connection = ClientConnection(sock, self.config)
@@ -104,13 +105,10 @@ class ProxyServer:
                     response_thread = threading.Thread(
                         target=self.upstream_to_client,
                         args=(client_conn, pool_member, start_time),
-                        daemon=True,
                     )
                     response_thread.start()
 
                 pool_member.connection.write(data.chunk)
-        except Exception as e:
-            raise e
         finally:
             self.cleanup(pool_member, response_thread)
 
