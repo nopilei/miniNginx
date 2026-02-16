@@ -7,163 +7,85 @@ import (
 	"fmt"
 	"io"
 	"iter"
+	"net/http"
 	"strconv"
 	"strings"
-	"net/http"
 )
 
-// import asyncio
-// import http
-// import logging
-// from dataclasses import dataclass
-// from typing import AsyncGenerator
-
-// class HTTPParseError(Exception):
-//     pass
-
-// @dataclass
-// class HTTPMessageChunk:
-//     chunk: bytes
-//     is_message_start: bool
-//     is_message_end: bool
-
-// logger = logging.getLogger(__name__)
-
-// class BaseHTTPReader:
-//     """
-//     Читает из asyncio.StreamReader байты по чанкам, парсит и валидирует по формату HTTP сообщения.
-
-//     Таймауты обрабатываются в клиентском коде.
-//     """
-//     MIN_VERSION = b'HTTP/1.1'
-
-//     def __init__(self, reader: asyncio.StreamReader):
-//         self.reader = reader
-
-//     async def chunk_iterator(self) -> AsyncGenerator[HTTPMessageChunk, None]:
-//         try:
-//             async for chunk in self._chunk_iterator():
-//                 yield chunk
-//         except Exception:
-//             raise HTTPParseError('Invalid bytes from external resource')
-
-//     async def _chunk_iterator(self) -> AsyncGenerator[HTTPMessageChunk, None]:
-//         while True:
-//             start_line = await self._get_start_line()
-//             self._validate_start_line(start_line)
-//             headers = await self._get_headers()
-//             yield HTTPMessageChunk(start_line + headers, is_message_start=True, is_message_end=False)
-//             async for chunk in self._get_body(headers):
-//                 yield chunk
-
-//     async def _get_headers(self) -> bytes:
-//         return await self.reader.readuntil(b'\r\n\r\n')
-
-//     async def _get_body(self, headers: bytes) -> AsyncGenerator[HTTPMessageChunk, None]:
-//         lower_case_headers = self._get_parsed_headers(headers)
-
-//         if content_length := int(lower_case_headers.get(b'content-length', 0)):
-//             chunk_size = 512
-//             bytes_read = 0
-//             while bytes_read < content_length:
-//                 to_read = min(chunk_size, content_length - bytes_read)
-//                 is_message_end = content_length - bytes_read <= chunk_size
-//                 chunk = await self.reader.readexactly(to_read)
-//                 yield HTTPMessageChunk(chunk, is_message_start=False, is_message_end=is_message_end)
-//                 bytes_read += to_read
-//         else:
-//             yield HTTPMessageChunk(b'', is_message_start=False, is_message_end=True)
-
-//     def _get_parsed_headers(self, raw_headers: bytes) -> dict[bytes, bytes]:
-//         headers = {}
-
-//         for header_line in raw_headers[:-4].split(b'\r\n'):
-//             name, value = header_line.split(b':', 1)
-//             headers[name.lower()] = value.strip()
-
-//         return headers
-
-//     async def _get_start_line(self) -> bytes:
-//         return await self.reader.readuntil(b'\r\n')
-
-//     def _validate_start_line(self, raw_start_line: bytes) -> None:
-//         raise NotImplementedError
-
-// class HTTPRequestReader(BaseHTTPReader):
-// def _validate_start_line(self, raw_start_line: bytes) -> None:
-//     method, path, version = raw_start_line[:-2].split(b' ')
-//     # logger.info(f"Getting request. {method} {path} {version}")
-
-//     if http.HTTPMethod(method.decode()) not in http.HTTPMethod:
-//         raise ValueError(f'Wrong method: {method}')
-
-//     if not path:
-//         raise ValueError(f'Empty path')
-
-//     if not version.startswith(b'HTTP/') and version < self.MIN_VERSION:
-//         raise ValueError(f'Invalid version: {version}')
-
-// class HTTPResponseReader(BaseHTTPReader):
-//     def _validate_start_line(self, raw_start_line: bytes) -> None:
-//         version, status, reason = raw_start_line[:-2].split(b' ', 2)
-//         # logger.info(f"Getting response. {status} {reason}")
-
-//         if http.HTTPStatus(int(status)) not in http.HTTPStatus:
-//             raise ValueError(f'Wrong status code: {status}')
-
-//         if not version.startswith(b'HTTP/') and version < self.MIN_VERSION:
-//             raise ValueError(f'Invalid version: {version}')
-
 type ParseError struct {
-	Err   error
+	Err error
 }
-func (e ParseError) Error() string{
+
+func (e ParseError) Error() string {
 	return e.Err.Error()
 }
 
 // Reader читает HTTP-сообщения из bufio.Reader, валидируя их и возвращая его по частям через итератор.
 type Reader struct {
-	reader *bufio.Reader
+	reader    *bufio.Reader
 	validator Validator
 }
+
 // Валидирует структуру HTTP
-type Validator interface{
+type Validator interface {
 	ValidateStartLine(startLine []byte) error
 }
-type RequestValidator struct {}
-type ResponseValidator struct {}
-func (v *RequestValidator) ValidateStartLine (startLine []byte) error {
-		splitedLine := bytes.Split(startLine[:len(startLine)-2], []byte(" "))
-		if len(splitedLine) < 3{
-			return ParseError{Err: errors.New("Not enough params")}
-		}
-		method, path, version := splitedLine[0], splitedLine[1], splitedLine[2]
+type RequestValidator struct{}
+type ResponseValidator struct{}
 
-		switch string(method){
-		case http.MethodGet, http.MethodPost:
-			break
-		default:
-			 return ParseError{Err: fmt.Errorf("Wrong method: %s", method)}
-		}
-        // # logger.info(f"Getting request. {method} {path} {version}")
+func (v RequestValidator) ValidateStartLine(startLine []byte) error {
+	splitedLine := bytes.Split(startLine[:len(startLine)-2], []byte(" "))
+	if len(splitedLine) < 3 {
+		return ParseError{Err: errors.New("Not enough params")}
+	}
+	method, path, version := splitedLine[0], splitedLine[1], splitedLine[2]
 
-        // if http.HTTPMethod(method.decode()) not in http.HTTPMethod:
-            // raise ValueError(f'Wrong method: {method}')
+	switch string(method) {
+	case http.MethodGet,
+		http.MethodPost,
+		http.MethodPut,
+		http.MethodPatch,
+		http.MethodDelete,
+		http.MethodConnect,
+		http.MethodHead,
+		http.MethodOptions,
+		http.MethodTrace:
+	default:
+		return ParseError{Err: fmt.Errorf("Wrong method: %s", method)}
+	}
+	// # logger.info(f"Getting request. {method} {path} {version}")
 
-        // if not path:
-            // raise ValueError(f'Empty path')
+	if len(path) == 0 {
+		return ParseError{Err: errors.New("Empty path")}
+	}
+	if !bytes.HasPrefix(version, []byte("HTTP/")) && string(version) < "HTTP/1.1" {
+		return ParseError{Err: fmt.Errorf("Invalid version: %s", version)}
+	}
+	return nil
+}
+func (v ResponseValidator) ValidateStartLine(startLine []byte) error {
+	splitedLine := bytes.Split(startLine[:len(startLine)-2], []byte(" "))
+	if len(splitedLine) < 3 {
+		return ParseError{Err: errors.New("Not enough params")}
+	}
+	version, status, _ := splitedLine[0], splitedLine[1], splitedLine[2]
+	if _, err := strconv.Atoi(string(status)); err != nil {
+		return ParseError{Err: fmt.Errorf("Wrong status code: %s", status)}
+	}
+	if !bytes.HasPrefix(version, []byte("HTTP/")) && string(version) < "HTTP/1.1" {
+		return ParseError{Err: fmt.Errorf("Invalid version: %s", version)}
+	}
+	return nil
 
-        // if not version.startswith(b'HTTP/') and version < self.MIN_VERSION:
-            // raise ValueError(f'Invalid version: {version}')
-} 
+}
 
 type Chunk struct {
-	Data          []byte
+	Chunk           []byte
 	IsMessageStart bool
 	IsMessageEnd   bool
 }
 
-func (r *BaseReader) All() iter.Seq2[Chunk, error] {
+func (r Reader) All() iter.Seq2[Chunk, error] {
 	return func(yield func(Chunk, error) bool) {
 		for {
 			// Читаем стартовую строку
@@ -172,13 +94,13 @@ func (r *BaseReader) All() iter.Seq2[Chunk, error] {
 				yield(Chunk{}, err)
 				return
 			}
-			err = r.validateStartLine(startLine)
+			err = r.validator.ValidateStartLine(startLine)
 			if err != nil {
 				yield(Chunk{}, err)
 				return
 			}
 			chunk := Chunk{
-				Data:          startLine,
+				Chunk:           startLine,
 				IsMessageStart: true,
 				IsMessageEnd:   false,
 			}
@@ -193,7 +115,7 @@ func (r *BaseReader) All() iter.Seq2[Chunk, error] {
 				return
 			}
 			chunk = Chunk{
-				Data:          headers,
+				Chunk:           headers,
 				IsMessageStart: false,
 				IsMessageEnd:   false,
 			}
@@ -213,29 +135,29 @@ func (r *BaseReader) All() iter.Seq2[Chunk, error] {
 	}
 }
 
-func (r *BaseReader) getStartLine() ([]byte, error) {
+func (r Reader) getStartLine() ([]byte, error) {
 	return r.readUntil([]byte("\r\n"))
 }
 
-func (r *BaseReader) getHeaders() ([]byte, error) {
+func (r Reader) getHeaders() ([]byte, error) {
 	return r.readUntil([]byte("\r\n\r\n"))
 }
 
-func (r *BaseReader) getBodyIterator(headers map[string][]byte) iter.Seq2[Chunk, error] {
+func (r Reader) getBodyIterator(headers map[string][]byte) iter.Seq2[Chunk, error] {
 	return func(yield func(Chunk, error) bool) {
 		contentLength := 0
 		if contentLengthBytes, ok := headers["content-length"]; ok {
 			contentLength, _ = strconv.Atoi(string(contentLengthBytes))
 		}
-        if contentLength == 0 {
-            chunk := Chunk{
-                Data:          []byte{},
-                IsMessageStart: false,
-                IsMessageEnd:   true,
-            }
-            yield(chunk, nil)
-            return
-        }
+		if contentLength == 0 {
+			chunk := Chunk{
+				Chunk:           []byte{},
+				IsMessageStart: false,
+				IsMessageEnd:   true,
+			}
+			yield(chunk, nil)
+			return
+		}
 		chunkSize := 512
 		bytesRead := 0
 
@@ -249,7 +171,7 @@ func (r *BaseReader) getBodyIterator(headers map[string][]byte) iter.Seq2[Chunk,
 				return
 			}
 			chunk := Chunk{
-				Data:          buf,
+				Chunk:           buf,
 				IsMessageStart: false,
 				IsMessageEnd:   isMessageEnd,
 			}
@@ -262,7 +184,7 @@ func (r *BaseReader) getBodyIterator(headers map[string][]byte) iter.Seq2[Chunk,
 	}
 }
 
-func (r *BaseReader) readUntil(delim []byte) ([]byte, error) {
+func (r Reader) readUntil(delim []byte) ([]byte, error) {
 	var buf []byte
 
 	for {
@@ -279,7 +201,7 @@ func (r *BaseReader) readUntil(delim []byte) ([]byte, error) {
 	}
 }
 
-func (r *BaseReader) getParsedHeaders(rawHeaders []byte) map[string][]byte {
+func (r Reader) getParsedHeaders(rawHeaders []byte) map[string][]byte {
 	headers := make(map[string][]byte)
 
 	for _, headerLine := range bytes.Split(rawHeaders[:len(rawHeaders)-4], []byte("\r\n")) {
@@ -298,10 +220,15 @@ func (r *BaseReader) getParsedHeaders(rawHeaders []byte) map[string][]byte {
 	return headers
 }
 
-func (r *BaseReader) validateStartLine(startLine []byte) error {
-	return errors.New("validateStartLine not implemented")
+func NewRequestReader(reader *bufio.Reader) Reader {
+    return Reader{
+        reader:    reader,
+        validator: RequestValidator{},
+    }
 }
-
-type RequestReader struct {
-	Reader
+func NewResponseReader(reader *bufio.Reader) Reader {
+    return Reader{
+        reader:    reader,
+        validator: ResponseValidator{},
+    }
 }
