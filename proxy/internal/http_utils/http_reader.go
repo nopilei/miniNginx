@@ -121,16 +121,16 @@ type Chunk struct {
 	IsMessageEnd   bool
 }
 
-func (r *BaseReader) All() iter.Seq2[*Chunk, error] {
-	return func(yield func(*Chunk, error) bool) {
+func (r *BaseReader) All() iter.Seq2[Chunk, error] {
+	return func(yield func(Chunk, error) bool) {
 		for {
 			// Читаем стартовую строку
 			startLine, err := r.getStartLine()
 			if err != nil {
-				yield(nil, err)
+				yield(Chunk{}, err)
 				return
 			}
-			chunk := &Chunk{
+			chunk := Chunk{
 				Data:          startLine,
 				IsMessageStart: true,
 				IsMessageEnd:   false,
@@ -142,10 +142,10 @@ func (r *BaseReader) All() iter.Seq2[*Chunk, error] {
 			// Читаем заголовки
 			headers, err := r.getHeaders()
 			if err != nil {
-				yield(nil, err)
+				yield(Chunk{}, err)
 				return
 			}
-			chunk = &Chunk{
+			chunk = Chunk{
 				Data:          headers,
 				IsMessageStart: false,
 				IsMessageEnd:   false,
@@ -174,14 +174,14 @@ func (r *BaseReader) getHeaders() ([]byte, error) {
 	return r.readUntil([]byte("\r\n\r\n"))
 }
 
-func (r *BaseReader) getBodyIterator(headers map[string][]byte) iter.Seq2[*Chunk, error] {
-	return func(yield func(*Chunk, error) bool) {
+func (r *BaseReader) getBodyIterator(headers map[string][]byte) iter.Seq2[Chunk, error] {
+	return func(yield func(Chunk, error) bool) {
 		contentLength := 0
 		if contentLengthBytes, ok := headers["content-length"]; ok {
 			contentLength, _ = strconv.Atoi(string(contentLengthBytes))
 		}
         if contentLength == 0 {
-            chunk := &Chunk{
+            chunk := Chunk{
                 Data:          []byte{},
                 IsMessageStart: false,
                 IsMessageEnd:   true,
@@ -198,10 +198,10 @@ func (r *BaseReader) getBodyIterator(headers map[string][]byte) iter.Seq2[*Chunk
 			buf := make([]byte, toRead)
 			_, err := io.ReadFull(r.reader, buf)
 			if err != nil {
-				yield(nil, err)
+				yield(Chunk{}, err)
 				return
 			}
-			chunk := &Chunk{
+			chunk := Chunk{
 				Data:          buf,
 				IsMessageStart: false,
 				IsMessageEnd:   isMessageEnd,
@@ -249,6 +249,23 @@ func (r *BaseReader) getParsedHeaders(rawHeaders []byte) map[string][]byte {
 	}
 
 	return headers
+}
+
+func (r *BaseReader) validateStartLine(startLine []byte) error {
+	var buf []byte
+
+	for {
+		chunk, err := r.reader.ReadBytes(delim[len(delim)-1])
+		buf = append(buf, chunk...)
+
+		if err != nil {
+			return buf, err
+		}
+
+		if bytes.Contains(buf, delim) {
+			return buf, nil
+		}
+	}
 }
 
 type RequestReader struct {
