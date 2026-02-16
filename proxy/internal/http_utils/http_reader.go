@@ -3,10 +3,13 @@ package httputils
 import (
 	"bufio"
 	"bytes"
+	"errors"
+	"fmt"
 	"io"
 	"iter"
 	"strconv"
 	"strings"
+	"net/http"
 )
 
 // import asyncio
@@ -87,18 +90,18 @@ import (
 //         raise NotImplementedError
 
 // class HTTPRequestReader(BaseHTTPReader):
-//     def _validate_start_line(self, raw_start_line: bytes) -> None:
-//         method, path, version = raw_start_line[:-2].split(b' ')
-//         # logger.info(f"Getting request. {method} {path} {version}")
+// def _validate_start_line(self, raw_start_line: bytes) -> None:
+//     method, path, version = raw_start_line[:-2].split(b' ')
+//     # logger.info(f"Getting request. {method} {path} {version}")
 
-//         if http.HTTPMethod(method.decode()) not in http.HTTPMethod:
-//             raise ValueError(f'Wrong method: {method}')
+//     if http.HTTPMethod(method.decode()) not in http.HTTPMethod:
+//         raise ValueError(f'Wrong method: {method}')
 
-//         if not path:
-//             raise ValueError(f'Empty path')
+//     if not path:
+//         raise ValueError(f'Empty path')
 
-//         if not version.startswith(b'HTTP/') and version < self.MIN_VERSION:
-//             raise ValueError(f'Invalid version: {version}')
+//     if not version.startswith(b'HTTP/') and version < self.MIN_VERSION:
+//         raise ValueError(f'Invalid version: {version}')
 
 // class HTTPResponseReader(BaseHTTPReader):
 //     def _validate_start_line(self, raw_start_line: bytes) -> None:
@@ -111,10 +114,49 @@ import (
 //         if not version.startswith(b'HTTP/') and version < self.MIN_VERSION:
 //             raise ValueError(f'Invalid version: {version}')
 
-// BaseReader читает HTTP-сообщения из bufio.Reader, валидируя их и возвращая его по частям через итератор.
-type BaseReader struct {
-	reader *bufio.Reader
+type ParseError struct {
+	Err   error
 }
+func (e ParseError) Error() string{
+	return e.Err.Error()
+}
+
+// Reader читает HTTP-сообщения из bufio.Reader, валидируя их и возвращая его по частям через итератор.
+type Reader struct {
+	reader *bufio.Reader
+	validator Validator
+}
+// Валидирует структуру HTTP
+type Validator interface{
+	ValidateStartLine(startLine []byte) error
+}
+type RequestValidator struct {}
+type ResponseValidator struct {}
+func (v *RequestValidator) ValidateStartLine (startLine []byte) error {
+		splitedLine := bytes.Split(startLine[:len(startLine)-2], []byte(" "))
+		if len(splitedLine) < 3{
+			return ParseError{Err: errors.New("Not enough params")}
+		}
+		method, path, version := splitedLine[0], splitedLine[1], splitedLine[2]
+
+		switch string(method){
+		case http.MethodGet, http.MethodPost:
+			break
+		default:
+			 return ParseError{Err: fmt.Errorf("Wrong method: %s", method)}
+		}
+        // # logger.info(f"Getting request. {method} {path} {version}")
+
+        // if http.HTTPMethod(method.decode()) not in http.HTTPMethod:
+            // raise ValueError(f'Wrong method: {method}')
+
+        // if not path:
+            // raise ValueError(f'Empty path')
+
+        // if not version.startswith(b'HTTP/') and version < self.MIN_VERSION:
+            // raise ValueError(f'Invalid version: {version}')
+} 
+
 type Chunk struct {
 	Data          []byte
 	IsMessageStart bool
@@ -126,6 +168,11 @@ func (r *BaseReader) All() iter.Seq2[Chunk, error] {
 		for {
 			// Читаем стартовую строку
 			startLine, err := r.getStartLine()
+			if err != nil {
+				yield(Chunk{}, err)
+				return
+			}
+			err = r.validateStartLine(startLine)
 			if err != nil {
 				yield(Chunk{}, err)
 				return
@@ -252,22 +299,9 @@ func (r *BaseReader) getParsedHeaders(rawHeaders []byte) map[string][]byte {
 }
 
 func (r *BaseReader) validateStartLine(startLine []byte) error {
-	var buf []byte
-
-	for {
-		chunk, err := r.reader.ReadBytes(delim[len(delim)-1])
-		buf = append(buf, chunk...)
-
-		if err != nil {
-			return buf, err
-		}
-
-		if bytes.Contains(buf, delim) {
-			return buf, nil
-		}
-	}
+	return errors.New("validateStartLine not implemented")
 }
 
 type RequestReader struct {
-	BaseReader
+	Reader
 }
