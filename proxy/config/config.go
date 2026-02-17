@@ -8,10 +8,10 @@ import (
 )
 
 type TimeoutsConfig struct {
-    ConnectMs float64 `yaml:"connect_ms"`
-    ReadMs float64 `yaml:"read_ms"`
-    WriteMs float64 `yaml:"write_ms"`
-    TotalMs float64 `yaml:"total_ms"`
+    ConnectMs int `yaml:"connect_ms"`
+    ReadMs int `yaml:"read_ms"`
+    WriteMs int `yaml:"write_ms"`
+    TotalMs int `yaml:"total_ms"`
 }
 
 type UpstreamConfig struct {

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"iter"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -220,13 +221,15 @@ func (r Reader) getParsedHeaders(rawHeaders []byte) map[string][]byte {
 	return headers
 }
 
-func NewRequestReader(reader *bufio.Reader) Reader {
+func NewRequestReader(conn net.Conn) Reader {
+    reader := bufio.NewReader(conn)
     return Reader{
         reader:    reader,
         validator: RequestValidator{},
     }
 }
-func NewResponseReader(reader *bufio.Reader) Reader {
+func NewResponseReader(conn net.Conn) Reader {
+    reader := bufio.NewReader(conn)
     return Reader{
         reader:    reader,
         validator: ResponseValidator{},
