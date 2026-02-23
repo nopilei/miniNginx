@@ -214,7 +214,7 @@ func (s *ProxyServer) ProxyClient(ctx context.Context, clientConn *node.Connecti
 
 	var (
 		poolMember  *upstream.PoolMember
-		upstreamRes chan error = make(chan error, 1)
+		upstreamRes chan error
 	)
 	defer func() { s.CleanUp(poolMember, upstreamRes) }()
 
@@ -228,50 +228,46 @@ func (s *ProxyServer) ProxyClient(ctx context.Context, clientConn *node.Connecti
 			if err != nil {
 				return err
 			}
-			host, port, _ := poolMember.Addr()
-			fmt.Printf("Got upstream connection: (%v, %v)\n", host, port)
-			go func(pm *upstream.PoolMember) {
+
+			upstreamRes = make(chan error, 1)
+			go func(pm *upstream.PoolMember, upstreamRes chan error) {
 				upstreamRes <- s.SendUpstreamResponse(ctx, clientConn, pm)
-				close(upstreamRes)
-			}(poolMember)
+			}(poolMember, upstreamRes)
 		}
 
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case err = <-upstreamRes:
+		err = poolMember.Write(chunk.Chunk)
+		if err != nil {
+			return err
+		}
+
+		if chunk.IsMessageEnd {
+			err = s.CleanUp(poolMember, upstreamRes)
 			if err != nil {
 				return err
 			}
-			s.CleanUp(poolMember, upstreamRes)
 			poolMember = nil
-			upstreamRes = make(chan error, 1)
-		default:
-			err = poolMember.Write(chunk.Chunk)
-			if err != nil {
-				return err
-			}
-			if chunk.IsMessageEnd {
-				err = s.CleanUp(poolMember, upstreamRes)
-				if err != nil {
-					return err
-				}
-				poolMember = nil
-				upstreamRes = make(chan error, 1)
-			}
 		}
 
 	}
 	return nil
 }
 
-func (s *ProxyServer) CleanUp(poolMember *upstream.PoolMember, upstreamResCh chan error) error {
+func (s *ProxyServer) CleanUp(ctx context.Context, poolMember *upstream.PoolMember, upstreamResCh chan error) error {
 	if poolMember == nil {
 		return nil
 	}
-	err := <-upstreamResCh
-	s.pool.Release(poolMember, poolMember.ResponseIsRead())
-	return err
+	if upstreamResCh == nil {
+		return nil
+	}
+
+	select {
+	case <-ctx.Done():
+		fmt.Println("Session timeout")
+		return ctx.Err()
+	case err := <- upstreamResCh:
+		s.pool.Release(poolMember, poolMember.ResponseIsRead())
+		return err
+	}
 }
 
 func (s *ProxyServer) SendUpstreamResponse(ctx context.Context, clientConn *node.Connection, poolMember *upstream.PoolMember) error {
