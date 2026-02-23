@@ -1,24 +1,19 @@
-package httputils
+package stream
 
 import (
 	"bufio"
 	"bytes"
-	"errors"
-	"fmt"
 	"io"
 	"iter"
 	"net"
-	"net/http"
 	"strconv"
 	"strings"
 )
 
-type ParseError struct {
-	Err error
-}
-
-func (e ParseError) Error() string {
-	return e.Err.Error()
+type Chunk struct {
+	Chunk          []byte
+	IsMessageStart bool
+	IsMessageEnd   bool
 }
 
 // Reader читает HTTP-сообщения из bufio.Reader, валидируя их и возвращая его по частям через итератор.
@@ -27,66 +22,22 @@ type Reader struct {
 	validator Validator
 }
 
-// Валидирует структуру HTTP
-type Validator interface {
-	ValidateStartLine(startLine []byte) error
+func NewRequestReader(conn net.Conn) *Reader {
+	reader := bufio.NewReader(conn)
+	return &Reader{
+		reader:    reader,
+		validator: RequestValidator{},
+	}
 }
-type RequestValidator struct{}
-type ResponseValidator struct{}
-
-func (v RequestValidator) ValidateStartLine(startLine []byte) error {
-	splitedLine := bytes.Split(startLine[:len(startLine)-2], []byte(" "))
-	if len(splitedLine) < 3 {
-		return ParseError{Err: errors.New("Not enough params")}
+func NewResponseReader(conn net.Conn) *Reader {
+	reader := bufio.NewReader(conn)
+	return &Reader{
+		reader:    reader,
+		validator: ResponseValidator{},
 	}
-	method, path, version := splitedLine[0], splitedLine[1], splitedLine[2]
-
-	switch string(method) {
-	case http.MethodGet,
-		http.MethodPost,
-		http.MethodPut,
-		http.MethodPatch,
-		http.MethodDelete,
-		http.MethodConnect,
-		http.MethodHead,
-		http.MethodOptions,
-		http.MethodTrace:
-	default:
-		return ParseError{Err: fmt.Errorf("Wrong method: %s", method)}
-	}
-	// # logger.info(f"Getting request. {method} {path} {version}")
-
-	if len(path) == 0 {
-		return ParseError{Err: errors.New("Empty path")}
-	}
-	if !bytes.HasPrefix(version, []byte("HTTP/")) && string(version) < "HTTP/1.1" {
-		return ParseError{Err: fmt.Errorf("Invalid version: %s", version)}
-	}
-	return nil
-}
-func (v ResponseValidator) ValidateStartLine(startLine []byte) error {
-	splitedLine := bytes.Split(startLine[:len(startLine)-2], []byte(" "))
-	if len(splitedLine) < 3 {
-		return ParseError{Err: errors.New("Not enough params")}
-	}
-	version, status, _ := splitedLine[0], splitedLine[1], splitedLine[2]
-	if _, err := strconv.Atoi(string(status)); err != nil {
-		return ParseError{Err: fmt.Errorf("Wrong status code: %s", status)}
-	}
-	if !bytes.HasPrefix(version, []byte("HTTP/")) && string(version) < "HTTP/1.1" {
-		return ParseError{Err: fmt.Errorf("Invalid version: %s", version)}
-	}
-	return nil
-
 }
 
-type Chunk struct {
-	Chunk           []byte
-	IsMessageStart bool
-	IsMessageEnd   bool
-}
-
-func (r Reader) All() iter.Seq2[Chunk, error] {
+func (r *Reader) All() iter.Seq2[Chunk, error] {
 	return func(yield func(Chunk, error) bool) {
 		for {
 			// Читаем стартовую строку
@@ -101,7 +52,7 @@ func (r Reader) All() iter.Seq2[Chunk, error] {
 				return
 			}
 			chunk := Chunk{
-				Chunk:           startLine,
+				Chunk:          startLine,
 				IsMessageStart: true,
 				IsMessageEnd:   false,
 			}
@@ -116,7 +67,7 @@ func (r Reader) All() iter.Seq2[Chunk, error] {
 				return
 			}
 			chunk = Chunk{
-				Chunk:           headers,
+				Chunk:          headers,
 				IsMessageStart: false,
 				IsMessageEnd:   false,
 			}
@@ -136,15 +87,15 @@ func (r Reader) All() iter.Seq2[Chunk, error] {
 	}
 }
 
-func (r Reader) getStartLine() ([]byte, error) {
+func (r *Reader) getStartLine() ([]byte, error) {
 	return r.readUntil([]byte("\r\n"))
 }
 
-func (r Reader) getHeaders() ([]byte, error) {
+func (r *Reader) getHeaders() ([]byte, error) {
 	return r.readUntil([]byte("\r\n\r\n"))
 }
 
-func (r Reader) getBodyIterator(headers map[string][]byte) iter.Seq2[Chunk, error] {
+func (r *Reader) getBodyIterator(headers map[string][]byte) iter.Seq2[Chunk, error] {
 	return func(yield func(Chunk, error) bool) {
 		contentLength := 0
 		if contentLengthBytes, ok := headers["content-length"]; ok {
@@ -152,7 +103,7 @@ func (r Reader) getBodyIterator(headers map[string][]byte) iter.Seq2[Chunk, erro
 		}
 		if contentLength == 0 {
 			chunk := Chunk{
-				Chunk:           []byte{},
+				Chunk:          []byte{},
 				IsMessageStart: false,
 				IsMessageEnd:   true,
 			}
@@ -172,7 +123,7 @@ func (r Reader) getBodyIterator(headers map[string][]byte) iter.Seq2[Chunk, erro
 				return
 			}
 			chunk := Chunk{
-				Chunk:           buf,
+				Chunk:          buf,
 				IsMessageStart: false,
 				IsMessageEnd:   isMessageEnd,
 			}
@@ -185,7 +136,7 @@ func (r Reader) getBodyIterator(headers map[string][]byte) iter.Seq2[Chunk, erro
 	}
 }
 
-func (r Reader) readUntil(delim []byte) ([]byte, error) {
+func (r *Reader) readUntil(delim []byte) ([]byte, error) {
 	var buf []byte
 
 	for {
@@ -202,7 +153,7 @@ func (r Reader) readUntil(delim []byte) ([]byte, error) {
 	}
 }
 
-func (r Reader) getParsedHeaders(rawHeaders []byte) map[string][]byte {
+func (r *Reader) getParsedHeaders(rawHeaders []byte) map[string][]byte {
 	headers := make(map[string][]byte)
 
 	for _, headerLine := range bytes.Split(rawHeaders[:len(rawHeaders)-4], []byte("\r\n")) {
@@ -219,19 +170,4 @@ func (r Reader) getParsedHeaders(rawHeaders []byte) map[string][]byte {
 	}
 
 	return headers
-}
-
-func NewRequestReader(conn net.Conn) Reader {
-    reader := bufio.NewReader(conn)
-    return Reader{
-        reader:    reader,
-        validator: RequestValidator{},
-    }
-}
-func NewResponseReader(conn net.Conn) Reader {
-    reader := bufio.NewReader(conn)
-    return Reader{
-        reader:    reader,
-        validator: ResponseValidator{},
-    }
 }
