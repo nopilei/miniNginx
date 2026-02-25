@@ -168,7 +168,7 @@ func (s *ProxyServer) ClientHandler(conn net.Conn) {
 	clientConnection := node.NewClientConnection(conn, s.config)
 	// TODO: add client addr to logs
 	fmt.Println("Got new client connection")
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.totalTimeoutS))
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.totalTimeoutS) * time.Second)
 	defer cancel()
 
 	res := make(chan error, 1)
@@ -194,14 +194,14 @@ func (s *ProxyServer) ProcessClientConnection(ctx context.Context, clientConnect
 		fmt.Println("Client timeout.")
 	case node.UpstreamTimeoutError:
 		fmt.Println("Upstream timeout")
-		s.SendBadGatewayResponse(ctx, clientConnection)
+		s.SendBadGatewayResponse(clientConnection)
 	case stream.ParseError:
 		fmt.Println("Error parsing client http data")
-		s.SendParsingErrorResponse(ctx, clientConnection)
+		s.SendParsingErrorResponse(clientConnection)
 	case upstream.PoolConnectionError:
 		// POOL_TIMEOUTS.inc()
 		fmt.Println(err)
-		s.SendBadGatewayResponse(ctx, clientConnection)
+		s.SendBadGatewayResponse(clientConnection)
 	default:
 		fmt.Println(err)
 	}
@@ -252,7 +252,7 @@ func (s *ProxyServer) ProxyClient(ctx context.Context, clientConn *node.Connecti
 	return nil
 }
 
-func (s *ProxyServer) CleanUp(ctx context.Context, poolMember *upstream.PoolMember, upstreamResCh chan error) error {
+func (s *ProxyServer) CleanUp(poolMember *upstream.PoolMember, upstreamResCh chan error) error {
 	if poolMember == nil {
 		return nil
 	}
@@ -260,14 +260,9 @@ func (s *ProxyServer) CleanUp(ctx context.Context, poolMember *upstream.PoolMemb
 		return nil
 	}
 
-	select {
-	case <-ctx.Done():
-		fmt.Println("Session timeout")
-		return ctx.Err()
-	case err := <- upstreamResCh:
-		s.pool.Release(poolMember, poolMember.ResponseIsRead())
-		return err
-	}
+	err := <- upstreamResCh
+	s.pool.Release(poolMember, poolMember.ResponseIsRead())
+	return err
 }
 
 func (s *ProxyServer) SendUpstreamResponse(ctx context.Context, clientConn *node.Connection, poolMember *upstream.PoolMember) error {
@@ -276,7 +271,7 @@ func (s *ProxyServer) SendUpstreamResponse(ctx context.Context, clientConn *node
 		if err != nil {
 			return err
 		}
-		s.SendResponse(ctx, clientConn, chunk.Chunk)
+		s.SendResponse(clientConn, chunk.Chunk)
 		if chunk.IsMessageEnd {
 			// TODO add metrics
 			return nil
@@ -285,7 +280,7 @@ func (s *ProxyServer) SendUpstreamResponse(ctx context.Context, clientConn *node
 	return nil
 }
 
-func (s *ProxyServer) SendResponse(ctx context.Context, clientConn *node.Connection, response []byte) {
+func (s *ProxyServer) SendResponse(clientConn *node.Connection, response []byte) {
 	err := clientConn.Write(response)
 	if err != nil {
 		fmt.Println("Client connection closed while sending response")
@@ -294,10 +289,10 @@ func (s *ProxyServer) SendResponse(ctx context.Context, clientConn *node.Connect
 
 func (s *ProxyServer) SendParsingErrorResponse(clientConn *node.Connection) {
 	errorResponse := node.GetErrorResponse(400, "Bad Request", "Invalid request")
-	s.SendResponse(context.Background(), clientConn, errorResponse)
+	s.SendResponse(clientConn, errorResponse)
 }
 
 func (s *ProxyServer) SendBadGatewayResponse(clientConn *node.Connection) {
 	errorResponse := node.GetErrorResponse(502, "Bad Gateway", "Internal error")
-	s.SendResponse(context.Background(), clientConn, errorResponse)
+	s.SendResponse(clientConn, errorResponse)
 }

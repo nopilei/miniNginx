@@ -64,7 +64,7 @@ func (p *RoundRobinPool) Acquire() (*PoolMember, error) {
 	p.upstreamQueues <- upstreamQueue
 
 	// TODO: metrics
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(p.connectTimeoutS))
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(p.connectTimeoutS) * time.Second)
 	defer cancel()
 	connection, err := upstreamQueue.Get(ctx)
 	if err != nil {
@@ -93,7 +93,8 @@ func (p *RoundRobinPool) Release(poolMember *PoolMember, isHealthy bool) {
 }
 
 func (p *RoundRobinPool) ConnectUpstream(host string, port int) (*node.Connection, error) {
-	conn, err := net.DialTimeout("tcp", fmt.Sprintf("%v:%v", host, port), time.Duration(p.connectTimeoutS))
+	addr := fmt.Sprintf("%v:%v", host, port)
+	conn, err := net.DialTimeout("tcp", addr, time.Duration(p.connectTimeoutS) * time.Second)
 	if err != nil {
 		return nil, err
 	}

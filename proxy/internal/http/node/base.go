@@ -32,7 +32,7 @@ func (c *Connection) Addr() (string, int, error) {
 	return host, port, nil
 }
 func (c *Connection) Write(response []byte) error {
-	c.conn.SetWriteDeadline(time.Now().Add(time.Duration(c.writeTimeoutS)))
+	c.conn.SetWriteDeadline(time.Now().Add(time.Duration(c.writeTimeoutS) * time.Second))
 	_, err := c.conn.Write(response)
 	if err != nil {
 		return c.connectionClosedError
