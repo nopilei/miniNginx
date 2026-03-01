@@ -3,6 +3,7 @@ package stream
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"io"
 	"iter"
 	"net"
@@ -37,7 +38,7 @@ func NewResponseReader(conn net.Conn) *Reader {
 	}
 }
 
-func (r *Reader) All() iter.Seq2[Chunk, error] {
+func (r *Reader) All(ctx context.Context) iter.Seq2[Chunk, error] {
 	return func(yield func(Chunk, error) bool) {
 		for {
 			// Читаем стартовую строку
@@ -83,7 +84,6 @@ func (r *Reader) All() iter.Seq2[Chunk, error] {
 				}
 			}
 		}
-
 	}
 }
 

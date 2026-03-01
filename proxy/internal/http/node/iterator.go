@@ -1,6 +1,7 @@
 package node
 
 import (
+	"context"
 	"iter"
 	"net"
 	"proxy/internal/http/stream"
@@ -15,10 +16,15 @@ type HTTPIterator struct {
 	timeoutError error
 }
 
-func (i *HTTPIterator) All() iter.Seq2[stream.Chunk, error] {
+func (i *HTTPIterator) All(ctx context.Context) iter.Seq2[stream.Chunk, error] {
+	go func(){
+		<-ctx.Done()
+		i.conn.SetReadDeadline(time.Now())
+	}()
+
 	return func(yield func(stream.Chunk, error) bool) {
 		i.SetTimeout()
-		for chunk, err := range i.reader.All() {
+		for chunk, err := range i.reader.All(ctx) {
 			if err == nil {
 				i.SetTimeout()
 				if chunk.IsMessageEnd {
@@ -28,6 +34,11 @@ func (i *HTTPIterator) All() iter.Seq2[stream.Chunk, error] {
 					return
 				}
 				continue
+			}
+
+			if ctx.Err() != nil {
+				yield(chunk, ctx.Err())
+				return
 			}
 
 			netErr, ok := err.(net.Error)

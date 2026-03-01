@@ -4,11 +4,11 @@ upstreams:
     port: 9001
 timeouts:
   connect_ms: 2000
-  read_ms: 5000
+  read_ms: 100000
   write_ms: 5000
-  total_ms: 15000
+  total_ms: 150000
 limits:
   max_client_conns: 5000
-  max_conns_per_upstream: 200
+  max_conns_per_upstream: 1
 logging:
   level: "info"

@@ -2,11 +2,13 @@ package upstream
 
 import (
 	"context"
-	"fmt"
 	"net"
 	"proxy/config"
 	"proxy/internal/http/node"
+	"strconv"
 	"time"
+
+	"go.uber.org/zap"
 )
 
 type PoolMember struct {
@@ -42,7 +44,8 @@ func (p *RoundRobinPool) PrepareConnections() error {
 		connectionQueue := NewUpstreamConnectionQueue(maxConns)
 
 		for range maxConns {
-			conn, err := p.ConnectUpstream(host, port)
+			addr := net.JoinHostPort(host, strconv.Itoa(port))
+			conn, err := p.ConnectUpstream(addr)
 			if err != nil {
 				// logger.exc
 				break
@@ -73,7 +76,7 @@ func (p *RoundRobinPool) Acquire() (*PoolMember, error) {
 	return &PoolMember{upstreamQueue: upstreamQueue, Connection: connection}, nil
 }
 
-func (p *RoundRobinPool) Release(poolMember *PoolMember, isHealthy bool) {
+func (p *RoundRobinPool) Release(poolMember *PoolMember, logger *zap.Logger, isHealthy bool) {
 	if poolMember.isReturned {
 		return
 	}
@@ -81,10 +84,10 @@ func (p *RoundRobinPool) Release(poolMember *PoolMember, isHealthy bool) {
 	if isHealthy {
 		queue.Put(connection)
 	} else {
-		host, port, _ := connection.Addr()
-		conn, err := p.ConnectUpstream(host, port)
+		addr := connection.Addr()
+		conn, err := p.ConnectUpstream(addr)
 		if err != nil {
-			// logger.exc
+			logger.Error("Failed to connect to upstream on release", zap.Error(err))
 			return
 		}
 		queue.Put(conn)
@@ -92,8 +95,7 @@ func (p *RoundRobinPool) Release(poolMember *PoolMember, isHealthy bool) {
 	poolMember.isReturned = true
 }
 
-func (p *RoundRobinPool) ConnectUpstream(host string, port int) (*node.Connection, error) {
-	addr := fmt.Sprintf("%v:%v", host, port)
+func (p *RoundRobinPool) ConnectUpstream(addr string) (*node.Connection, error) {
 	conn, err := net.DialTimeout("tcp", addr, time.Duration(p.connectTimeoutS) * time.Second)
 	if err != nil {
 		return nil, err

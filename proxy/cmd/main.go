@@ -23,18 +23,25 @@ package main
 import (
 	"os"
 	"proxy/config"
-    "proxy/internal/server"
+	"proxy/internal/server"
 )
 
 func main() { 
     if len(os.Args) < 2 {
         panic("Config path not provided")
     }
-    config, err := config.ConfigLoader{Path: os.Args[1]}.GetConfig()
+
+    serverConfig, err := config.ConfigLoader{Path: os.Args[1]}.GetConfig()
     if err != nil {
         panic(err)
     }
-    proxyServer := server.New(config)
+
+    logger, err := config.GetLogger()
+    if err != nil {
+        panic(err)
+    }
+    
+    proxyServer := server.New(serverConfig, logger)
     err = proxyServer.StartServer()
     if err != nil {
         panic(err)

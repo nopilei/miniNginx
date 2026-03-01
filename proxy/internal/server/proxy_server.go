@@ -118,13 +118,15 @@ package server
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"net"
 	"proxy/config"
 	"proxy/internal/http/node"
 	"proxy/internal/http/stream"
 	"proxy/internal/upstream"
 	"time"
+
+	"go.uber.org/zap"
 )
 
 type ProxyServer struct {
@@ -132,14 +134,16 @@ type ProxyServer struct {
 	connSemaphore chan struct{}
 	totalTimeoutS int
 	pool          *upstream.RoundRobinPool
+	logger        *zap.Logger
 }
 
-func New(config config.Config) *ProxyServer {
+func New(config config.Config, logger *zap.Logger) *ProxyServer {
 	return &ProxyServer{
 		config:        config,
 		connSemaphore: make(chan struct{}, config.Limits.MaxClientConns),
 		totalTimeoutS: config.Timeouts.TotalMs / 1000,
 		pool:          upstream.NewPool(config),
+		logger:        logger,
 	}
 }
 
@@ -149,76 +153,75 @@ func (s *ProxyServer) StartServer() error {
 		return err
 	}
 	ln, err := net.Listen("tcp", s.config.Listen)
+	sugaredLogger := s.logger.Sugar()
 
-	fmt.Printf("Starting server %v\n", s.config.Listen)
+	sugaredLogger.Info("Starting server ", s.config.Listen)
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
-			fmt.Println(err)
+			sugaredLogger.Error(err)
 			continue
 		}
+		sugaredLogger.Info("New connection from: ", conn.RemoteAddr())
+
+		s.connSemaphore <- struct{}{}
 		go s.ClientHandler(conn)
 	}
 }
 
 func (s *ProxyServer) ClientHandler(conn net.Conn) {
-	s.connSemaphore <- struct{}{}
 	defer func() { <-s.connSemaphore }()
 
 	clientConnection := node.NewClientConnection(conn, s.config)
-	// TODO: add client addr to logs
-	fmt.Println("Got new client connection")
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.totalTimeoutS) * time.Second)
+	logger := s.logger.With(zap.String("client_addr", conn.RemoteAddr().String()))
+	logger.Info("Got new client connection")
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.totalTimeoutS)*time.Second)
 	defer cancel()
 
-	res := make(chan error, 1)
-	go func() { res <- s.ProcessClientConnection(ctx, clientConnection) }()
-
-	select {
-	case <-ctx.Done():
-		fmt.Println("Keep alive connection with client closed forcefully: too long session!")
-	case <-res:
-		fmt.Println("Session end")
-	}
+	s.ProcessClientConnection(ctx, logger, clientConnection)
 }
 
-func (s *ProxyServer) ProcessClientConnection(ctx context.Context, clientConnection *node.Connection) error {
+func (s *ProxyServer) ProcessClientConnection(ctx context.Context, logger *zap.Logger, clientConnection *node.Connection) error {
 	defer clientConnection.Close()
-	fmt.Println("Processing new client connection.")
+	logger.Info("Processing new client connection.")
 
-	err := s.ProxyClient(ctx, clientConnection)
+	err := s.ProxyClient(ctx, logger, clientConnection)
 
 	switch err := err.(type) {
 	case nil:
 	case node.ClientTimeoutError, node.ClientConnectionClosedError:
-		fmt.Println("Client timeout.")
+		logger.Info("Client timeout.")
 	case node.UpstreamTimeoutError:
-		fmt.Println("Upstream timeout")
-		s.SendBadGatewayResponse(clientConnection)
+		logger.Info("Upstream timeout")
+		s.SendBadGatewayResponse(clientConnection, logger)
 	case stream.ParseError:
-		fmt.Println("Error parsing client http data")
-		s.SendParsingErrorResponse(clientConnection)
+		logger.Info("Error parsing client http data")
+		s.SendParsingErrorResponse(clientConnection, logger)
 	case upstream.PoolConnectionError:
 		// POOL_TIMEOUTS.inc()
-		fmt.Println(err)
-		s.SendBadGatewayResponse(clientConnection)
+		logger.Info("Pool connection error: ", zap.Error(err))
+		s.SendBadGatewayResponse(clientConnection, logger)
 	default:
-		fmt.Println(err)
+		if errors.Is(err, context.DeadlineExceeded) {
+			logger.Info("Context deadline exceeded")
+		} else {
+			logger.Info("Unexpected error: ", zap.Error(err))
+		}
 	}
 	return err
 
 }
 
-func (s *ProxyServer) ProxyClient(ctx context.Context, clientConn *node.Connection) error {
-	fmt.Println("Getting data from client...")
+func (s *ProxyServer) ProxyClient(ctx context.Context, logger *zap.Logger, clientConn *node.Connection) error {
+	logger.Info("Getting data from client...")
 
 	var (
 		poolMember  *upstream.PoolMember
 		upstreamRes chan error
 	)
-	defer func() { s.CleanUp(poolMember, upstreamRes) }()
+	defer func() { s.CleanUp(ctx, logger, poolMember, upstreamRes) }()
 
-	for chunk, err := range clientConn.Iterator() {
+	for chunk, err := range clientConn.Iterator(ctx) {
 		if err != nil {
 			return err
 		}
@@ -230,8 +233,8 @@ func (s *ProxyServer) ProxyClient(ctx context.Context, clientConn *node.Connecti
 			}
 
 			upstreamRes = make(chan error, 1)
-			go func(pm *upstream.PoolMember, upstreamRes chan error) {
-				upstreamRes <- s.SendUpstreamResponse(ctx, clientConn, pm)
+			go func(pm *upstream.PoolMember, up chan error) {
+				up <- s.SendUpstreamResponse(ctx, logger, clientConn, pm)
 			}(poolMember, upstreamRes)
 		}
 
@@ -241,7 +244,7 @@ func (s *ProxyServer) ProxyClient(ctx context.Context, clientConn *node.Connecti
 		}
 
 		if chunk.IsMessageEnd {
-			err = s.CleanUp(poolMember, upstreamRes)
+			err = s.CleanUp(ctx, logger, poolMember, upstreamRes)
 			if err != nil {
 				return err
 			}
@@ -252,26 +255,30 @@ func (s *ProxyServer) ProxyClient(ctx context.Context, clientConn *node.Connecti
 	return nil
 }
 
-func (s *ProxyServer) CleanUp(poolMember *upstream.PoolMember, upstreamResCh chan error) error {
+func (s *ProxyServer) CleanUp(ctx context.Context, logger *zap.Logger, poolMember *upstream.PoolMember, upstreamResCh chan error) error {
 	if poolMember == nil {
 		return nil
 	}
 	if upstreamResCh == nil {
 		return nil
 	}
-
-	err := <- upstreamResCh
-	s.pool.Release(poolMember, poolMember.ResponseIsRead())
-	return err
+	select {
+	case <-ctx.Done():
+		s.pool.Release(poolMember, logger, poolMember.ResponseIsRead())
+		return ctx.Err()
+	case err := <-upstreamResCh:
+		s.pool.Release(poolMember, logger, poolMember.ResponseIsRead())
+		return err
+	}
 }
 
-func (s *ProxyServer) SendUpstreamResponse(ctx context.Context, clientConn *node.Connection, poolMember *upstream.PoolMember) error {
-	fmt.Println("Sending response to client...")
-	for chunk, err := range poolMember.Iterator() {
+func (s *ProxyServer) SendUpstreamResponse(ctx context.Context, logger *zap.Logger, clientConn *node.Connection, poolMember *upstream.PoolMember) error {
+	logger.Info("Sending response to client...")
+	for chunk, err := range poolMember.Iterator(ctx) {
 		if err != nil {
 			return err
 		}
-		s.SendResponse(clientConn, chunk.Chunk)
+		s.SendResponse(clientConn, logger, chunk.Chunk)
 		if chunk.IsMessageEnd {
 			// TODO add metrics
 			return nil
@@ -280,19 +287,19 @@ func (s *ProxyServer) SendUpstreamResponse(ctx context.Context, clientConn *node
 	return nil
 }
 
-func (s *ProxyServer) SendResponse(clientConn *node.Connection, response []byte) {
+func (s *ProxyServer) SendResponse(clientConn *node.Connection, logger *zap.Logger, response []byte) {
 	err := clientConn.Write(response)
 	if err != nil {
-		fmt.Println("Client connection closed while sending response")
+		logger.Info("Client connection closed while sending response")
 	}
 }
 
-func (s *ProxyServer) SendParsingErrorResponse(clientConn *node.Connection) {
+func (s *ProxyServer) SendParsingErrorResponse(clientConn *node.Connection, logger *zap.Logger) {
 	errorResponse := node.GetErrorResponse(400, "Bad Request", "Invalid request")
-	s.SendResponse(clientConn, errorResponse)
+	s.SendResponse(clientConn, logger, errorResponse)
 }
 
-func (s *ProxyServer) SendBadGatewayResponse(clientConn *node.Connection) {
+func (s *ProxyServer) SendBadGatewayResponse(clientConn *node.Connection, logger *zap.Logger) {
 	errorResponse := node.GetErrorResponse(502, "Bad Gateway", "Internal error")
-	s.SendResponse(clientConn, errorResponse)
+	s.SendResponse(clientConn, logger, errorResponse)
 }
