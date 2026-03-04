@@ -24,9 +24,12 @@ import (
 	"os"
 	"proxy/config"
 	"proxy/internal/server"
+	"sync"
 )
 
 func main() { 
+    var wg sync.WaitGroup
+
     if len(os.Args) < 2 {
         panic("Config path not provided")
     }
@@ -42,6 +45,8 @@ func main() {
     }
     
     proxyServer := server.New(serverConfig, logger)
+    wg.Go(func() {proxyServer.StartServer)
+
     err = proxyServer.StartServer()
     if err != nil {
         panic(err)
