@@ -5,7 +5,7 @@ export const options = {
   scenarios: {
     high_rps: {
       executor: "constant-arrival-rate",
-      rate: 500,
+      rate: 2000,
       timeUnit: "1s",
       duration: "45s",
       preAllocatedVUs: 100,
@@ -14,7 +14,7 @@ export const options = {
   },
 };
 
-const URL = __ENV.TARGET_URL || "http://localhost:8080/events";
+const URL = __ENV.TARGET_URL || "http://127.0.0.1:8080/events";
 const payload = JSON.stringify({
   event_type: "order_created",
   data: {

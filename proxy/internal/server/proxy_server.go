@@ -264,10 +264,10 @@ func (s *ProxyServer) CleanUp(ctx context.Context, logger *zap.Logger, poolMembe
 	}
 	select {
 	case <-ctx.Done():
-		s.pool.Release(poolMember, logger, poolMember.ResponseIsRead())
+		s.pool.Release(poolMember, logger, false)
 		return ctx.Err()
 	case err := <-upstreamResCh:
-		s.pool.Release(poolMember, logger, poolMember.ResponseIsRead())
+		s.pool.Release(poolMember, logger, err == nil)
 		return err
 	}
 }

@@ -1,14 +1,14 @@
 listen: "0.0.0.0:8080"
 upstreams:
   - host: "localhost"
-    port: 9001
+    port: 9002
 timeouts:
   connect_ms: 2000
-  read_ms: 100000
+  read_ms: 10000
   write_ms: 5000
   total_ms: 150000
 limits:
   max_client_conns: 5000
-  max_conns_per_upstream: 1
+  max_conns_per_upstream: 100
 logging:
   level: "info"

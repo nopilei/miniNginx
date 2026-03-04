@@ -84,6 +84,7 @@ func (p *RoundRobinPool) Release(poolMember *PoolMember, logger *zap.Logger, isH
 	if isHealthy {
 		queue.Put(connection)
 	} else {
+		connection.Close()
 		addr := connection.Addr()
 		conn, err := p.ConnectUpstream(addr)
 		if err != nil {
