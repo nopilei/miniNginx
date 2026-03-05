@@ -24,11 +24,12 @@ import (
 	"os"
 	"proxy/config"
 	"proxy/internal/server"
-	"sync"
+
+    "golang.org/x/sync/errgroup"
 )
 
 func main() { 
-    var wg sync.WaitGroup
+    wg := new(errgroup.Group)
 
     if len(os.Args) < 2 {
         panic("Config path not provided")
@@ -45,9 +46,10 @@ func main() {
     }
     
     proxyServer := server.New(serverConfig, logger)
-    wg.Go(func() {proxyServer.StartServer)
 
-    err = proxyServer.StartServer()
+    wg.Go(func() error {return proxyServer.StartServer()})
+    wg.Go(func() error {return config.StartMetricsServer(logger)})
+    err = wg.Wait()
     if err != nil {
         panic(err)
     }

@@ -148,13 +148,15 @@ func New(config config.Config, logger *zap.Logger) *ProxyServer {
 }
 
 func (s *ProxyServer) StartServer() error {
+	sugaredLogger := s.logger.Sugar()
+
+	sugaredLogger.Info("Setting connections to upstreams... ")
 	err := s.pool.PrepareConnections()
 	if err != nil {
 		return err
 	}
-	ln, err := net.Listen("tcp", s.config.Listen)
-	sugaredLogger := s.logger.Sugar()
 
+	ln, err := net.Listen("tcp", s.config.Listen)
 	sugaredLogger.Info("Starting server ", s.config.Listen)
 	for {
 		conn, err := ln.Accept()
@@ -225,7 +227,7 @@ func (s *ProxyServer) ProxyClient(ctx context.Context, logger *zap.Logger, clien
 		if err != nil {
 			return err
 		}
-		// TODO: add metrics
+		startTime := time.Now()
 		if chunk.IsMessageStart {
 			poolMember, err = s.pool.Acquire()
 			if err != nil {
@@ -234,7 +236,7 @@ func (s *ProxyServer) ProxyClient(ctx context.Context, logger *zap.Logger, clien
 
 			upstreamRes = make(chan error, 1)
 			go func(pm *upstream.PoolMember, up chan error) {
-				up <- s.SendUpstreamResponse(ctx, logger, clientConn, pm)
+				up <- s.SendUpstreamResponse(ctx, logger, clientConn, pm, startTime)
 			}(poolMember, upstreamRes)
 		}
 
@@ -272,7 +274,7 @@ func (s *ProxyServer) CleanUp(ctx context.Context, logger *zap.Logger, poolMembe
 	}
 }
 
-func (s *ProxyServer) SendUpstreamResponse(ctx context.Context, logger *zap.Logger, clientConn *node.Connection, poolMember *upstream.PoolMember) error {
+func (s *ProxyServer) SendUpstreamResponse(ctx context.Context, logger *zap.Logger, clientConn *node.Connection, poolMember *upstream.PoolMember, startTime time.Time) error {
 	logger.Info("Sending response to client...")
 	for chunk, err := range poolMember.Iterator(ctx) {
 		if err != nil {
@@ -280,7 +282,7 @@ func (s *ProxyServer) SendUpstreamResponse(ctx context.Context, logger *zap.Logg
 		}
 		s.SendResponse(clientConn, logger, chunk.Chunk)
 		if chunk.IsMessageEnd {
-			// TODO add metrics
+			config.RequestLatency.WithLabelValues(poolMember.Addr()).Observe(time.Since(startTime).Seconds())
 			return nil
 		}
 	}

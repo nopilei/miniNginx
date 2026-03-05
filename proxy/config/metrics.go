@@ -75,18 +75,31 @@
 //	    await server.serve_forever()
 package config
 
+
 import (
-	"fmt"
 	"net/http"
+
+	"go.uber.org/zap"
+    "github.com/prometheus/client_golang/prometheus"
+    "github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-func StartMetricsServer(){
-    http.HandleFunc("*", func(w http.ResponseWriter, r *http.Request) {
-        w.Write([]byte("ffff"))
-    })
+var (
+    RequestLatency = prometheus.NewHistogramVec(
+        prometheus.HistogramOpts{
+            Name: "proxy_request_latency_seconds",
+            Help: "HTTP request latency",
+            Buckets: []float64{0.05, 0.1, 0.5, 1, 5, 10},
+        },
+        []string{"upstream"},
+    )
+)
 
-    err := http.ListenAndServe("0.0.0.0:9100", nil)
-    if err != nil {
-        fmt.Println("Ошибка запуска сервера:", err)
-    }
+func StartMetricsServer(logger *zap.Logger) error{
+    prometheus.MustRegister(RequestLatency)
+
+    http.Handle("/metrics", promhttp.Handler())
+    logger.Sugar().Info("Starting metrics server...")
+
+    return http.ListenAndServe("0.0.0.0:9100", nil)
 }
