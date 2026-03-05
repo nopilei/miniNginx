@@ -200,7 +200,7 @@ func (s *ProxyServer) ProcessClientConnection(ctx context.Context, logger *zap.L
 		logger.Info("Error parsing client http data")
 		s.SendParsingErrorResponse(clientConnection, logger)
 	case upstream.PoolConnectionError:
-		// POOL_TIMEOUTS.inc()
+		config.PoolTimeouts.Inc()
 		logger.Info("Pool connection error: ", zap.Error(err))
 		s.SendBadGatewayResponse(clientConnection, logger)
 	default:
@@ -230,6 +230,7 @@ func (s *ProxyServer) ProxyClient(ctx context.Context, logger *zap.Logger, clien
 		startTime := time.Now()
 		if chunk.IsMessageStart {
 			poolMember, err = s.pool.Acquire()
+			config.PoolLatency.Observe(time.Since(startTime).Seconds())
 			if err != nil {
 				return err
 			}
@@ -269,6 +270,9 @@ func (s *ProxyServer) CleanUp(ctx context.Context, logger *zap.Logger, poolMembe
 		s.pool.Release(poolMember, logger, false)
 		return ctx.Err()
 	case err := <-upstreamResCh:
+		if _, ok := err.(node.UpstreamTimeoutError); ok{
+			config.UpstreamTimeouts.WithLabelValues(poolMember.Addr()).Inc()
+		}
 		s.pool.Release(poolMember, logger, err == nil)
 		return err
 	}

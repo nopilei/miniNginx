@@ -1,11 +1,7 @@
 listen: "0.0.0.0:8080"
 upstreams:
   - host: "localhost"
-    port: 9002
-  - host: "localhost"
-    port: 9003
-  - host: "localhost"
-    port: 9004
+    port: 9001
 timeouts:
   connect_ms: 2000
   read_ms: 10000
