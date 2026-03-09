@@ -1,6 +1,6 @@
 Запуск
 
-```python proxy/main.py config.yaml```
+```go run cmd/main.go ../config.yaml```
 
 ## Тесты
 
