@@ -12,6 +12,8 @@ rate: 12000, maxVU: 3000 -> 10500 RPS, CPU -> 82%, p95 -> 400ms
 ![alt text](image-2.png)
 
 #### GOMAXPROCS=8
+![alt text](image-5.png)
+
 rate: 12000, maxVU: 3000 -> 10500 RPS, CPU -> 150%, p95 -> 61ms
 ![alt text](image-3.png)
 ![alt text](image-4.png)
