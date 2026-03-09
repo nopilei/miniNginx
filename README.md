@@ -4,14 +4,14 @@
 
 ## Тесты
 
-#### Конфиг сервера
-![img_1.png](img_1.png)
+#### GOMAXPROCS=1
+![alt text](image.png)
 
-rate: 5000, maxVU: 500 -> 3600 RPS
-![img.png](img.png)
+rate: 12000, maxVU: 3000 -> 10500 RPS, CPU -> 82%, p95 -> 400ms
+![alt text](image-1.png)
+![alt text](image-2.png)
 
-rate: 5000, maxVU: 1000 -> 2500 RPS
-![img_2.png](img_2.png)
-
-rate: 5000, maxVU: 1500 -> 2600 RPS
-![img_3.png](img_3.png)
+#### GOMAXPROCS=8
+rate: 12000, maxVU: 3000 -> 10500 RPS, CPU -> 150%, p95 -> 61ms
+![alt text](image-3.png)
+![alt text](image-4.png)
